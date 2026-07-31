@@ -27,3 +27,20 @@ export function describeReviewPayload(body: string): string {
   return oneLine(body);
 }
 
+/**
+ * Repo-context label for a confirm() / editor() dialog title. Returns a short
+ * " (repo: <path>)" suffix ONLY when the tool targets a repository other than
+ * the session default (ctx.cwd). The whole point of the review gate is that
+ * the human knows WHICH repo a write will touch; without this, an agent that
+ * passes cwd="/other/repo" could redirect a commit / PR / comment and the
+ * dialog would not show it. When cwd === defaultCwd the title is already
+ * accurate (it is the session repo), so no suffix is added.
+ */
+export function repoContextLabel(
+  effectiveCwd: string | undefined,
+  defaultCwd: string | undefined,
+): string {
+  if (!effectiveCwd || !defaultCwd || effectiveCwd === defaultCwd) return "";
+  return ` (repo: ${effectiveCwd})`;
+}
+

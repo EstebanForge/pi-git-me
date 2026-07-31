@@ -5,9 +5,12 @@ import { toToolResult } from "../result";
 import {
   GIT_CURRENT_BRANCH_TITLE,
   GIT_CURRENT_BRANCH_DESCRIPTION,
+  CWD_DESCRIPTION,
 } from "../prompts";
 
-const Params = Type.Object({});
+const Params = Type.Object({
+  cwd: Type.Optional(Type.String({ description: CWD_DESCRIPTION })),
+});
 
 export const currentBranchTool: ToolDefinition<typeof Params, undefined> = {
   name: "git_current_branch",
@@ -16,12 +19,13 @@ export const currentBranchTool: ToolDefinition<typeof Params, undefined> = {
   parameters: Params,
   async execute(
     _toolCallId,
-    _params,
+    params,
     _signal,
     _onUpdate,
-    _ctx,
+    ctx,
   ): Promise<AgentToolResult<undefined>> {
-    const branch = gitCurrentBranch();
+    const cwd = params.cwd ?? ctx.cwd;
+    const branch = gitCurrentBranch(cwd);
     return toToolResult(branch || "(not inside a git repository)");
   },
 };

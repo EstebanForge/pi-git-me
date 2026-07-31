@@ -2,7 +2,7 @@ import { Type, type Static } from "typebox";
 import type { AgentToolResult, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { runGh, requireGitRepo, requireGh, GitMeEnvError } from "../auth";
 import { confirmWrite } from "../confirm";
-import { describeReviewPayload } from "../format";
+import { describeReviewPayload, repoContextLabel } from "../format";
 import { ghPrForCurrentBranch } from "../git";
 import { toToolResult, errorText, type GitDetails } from "../result";
 import {
@@ -10,6 +10,7 @@ import {
   PR_COMMENT_DESCRIPTION,
   PR_COMMENT_BODY_DESCRIPTION,
   PR_COMMENT_NUMBER_DESCRIPTION,
+  CWD_DESCRIPTION,
 } from "../prompts";
 
 // Post a top-level conversation comment on a pull request (via
@@ -33,6 +34,7 @@ const Params = Type.Object({
       minimum: 1,
     }),
   ),
+  cwd: Type.Optional(Type.String({ description: CWD_DESCRIPTION })),
 });
 
 export const prCommentTool: ToolDefinition<typeof Params, GitDetails> = {
@@ -47,8 +49,9 @@ export const prCommentTool: ToolDefinition<typeof Params, GitDetails> = {
     _onUpdate,
     ctx,
   ): Promise<AgentToolResult<GitDetails>> {
+    const cwd = params.cwd ?? ctx.cwd;
     try {
-      requireGitRepo();
+      requireGitRepo(cwd);
       requireGh();
     } catch (err) {
       if (err instanceof GitMeEnvError) return toToolResult(err.message);
@@ -58,7 +61,7 @@ export const prCommentTool: ToolDefinition<typeof Params, GitDetails> = {
     // Resolve PR number: explicit > current-branch PR > fail closed.
     let prNumber = params.pr;
     if (prNumber === undefined) {
-      const current = ghPrForCurrentBranch();
+      const current = ghPrForCurrentBranch(cwd);
       if (current === null) {
         return toToolResult(
           "git-me: no PR found for the current branch. Pass `pr` explicitly or open a PR first (git_pr_upsert with create).",
@@ -68,7 +71,7 @@ export const prCommentTool: ToolDefinition<typeof Params, GitDetails> = {
     }
 
     const decision = await confirmWrite(ctx, {
-      title: `Post this comment on PR #${prNumber}?`,
+      title: `Post this comment on PR #${prNumber}?${repoContextLabel(cwd, ctx.cwd)}`,
       editableText: params.body,
       summary: describeReviewPayload(params.body),
     });
@@ -88,7 +91,7 @@ export const prCommentTool: ToolDefinition<typeof Params, GitDetails> = {
     }
 
     try {
-      const result = runGh(["pr", "comment", String(prNumber), "--body", body]);
+      const result = runGh(["pr", "comment", String(prNumber), "--body", body], cwd);
       if (result.exitCode !== 0) {
         const detail = result.stderr.trim() || result.stdout.trim();
         return toToolResult(

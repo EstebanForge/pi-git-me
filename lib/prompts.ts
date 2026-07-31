@@ -15,6 +15,13 @@
 // Tool descriptions therefore say "GitHub" (or "the gh CLI"), not
 // "any git provider".
 
+// ============================================================== shared =====
+// Optional on every tool. Defaults to the agent current directory (ctx.cwd).
+// Lets the agent point a tool at a different repository than the one pi was
+// started in (a sibling repo, a subdir, a monorepo member).
+export const CWD_DESCRIPTION =
+  "Working directory to run git or gh in. Defaults to the agent current directory. Set this to operate on a different repository than the one pi was started in. Should be inside a git working tree: write tools reject a path that is not one, read tools return an empty result.";
+
 // ============================================================== read tools ==
 // Read tools are not gated and do not post anything. They exist so the agent
 // can ground its write-tool drafts in real diff / log / branch / PR state.

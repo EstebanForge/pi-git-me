@@ -42,6 +42,15 @@ export function isGitRepo(cwd: string = process.cwd()): boolean {
   return ok;
 }
 
+// -------------------------------------------------- gh auth helpers -------
+// hasGh / isGhAuthed / requireGh take NO cwd on purpose. `gh` stores its
+// auth state host-globally (in ~/.config/gh), not per-repo, so `gh auth status`
+// is the same answer in every working directory. Threading cwd here would
+// imply repo-scoped auth that does not exist. (Per-host enterprise setups are
+// handled by gh's own config, still cwd-independent.) Only the git/gh COMMAND
+// execution helpers below (runGit / runGh) and the repo detection (isGitRepo)
+// are cwd-sensitive.
+
 /**
  * Returns true when `gh --version` exits 0. Cached. Does not throw.
  */

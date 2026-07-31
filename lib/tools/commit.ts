@@ -3,7 +3,7 @@ import type { AgentToolResult, ToolDefinition } from "@earendil-works/pi-coding-
 import { spawn } from "node:child_process";
 import { runGit, requireGitRepo, GitMeEnvError } from "../auth";
 import { confirmWrite } from "../confirm";
-import { formatCommitMessage, oneLine } from "../format";
+import { formatCommitMessage, oneLine, repoContextLabel } from "../format";
 import { toToolResult, errorText, type GitDetails } from "../result";
 import {
   COMMIT_TITLE,
@@ -11,6 +11,7 @@ import {
   COMMIT_SUBJECT_DESCRIPTION,
   COMMIT_BODY_DESCRIPTION,
   COMMIT_AMEND_DESCRIPTION,
+  CWD_DESCRIPTION,
 } from "../prompts";
 
 // Commit the staged changes with the agent's suggested message. The agent
@@ -29,6 +30,7 @@ const Params = Type.Object({
   amend: Type.Optional(
     Type.Boolean({ description: COMMIT_AMEND_DESCRIPTION }),
   ),
+  cwd: Type.Optional(Type.String({ description: CWD_DESCRIPTION })),
 });
 
 export const commitTool: ToolDefinition<typeof Params, GitDetails> = {
@@ -43,8 +45,9 @@ export const commitTool: ToolDefinition<typeof Params, GitDetails> = {
     _onUpdate,
     ctx,
   ): Promise<AgentToolResult<GitDetails>> {
+    const cwd = params.cwd ?? ctx.cwd;
     try {
-      requireGitRepo();
+      requireGitRepo(cwd);
     } catch (err) {
       if (err instanceof GitMeEnvError) return toToolResult(err.message);
       throw err;
@@ -56,7 +59,7 @@ export const commitTool: ToolDefinition<typeof Params, GitDetails> = {
     // --amend rewrites the last commit's message even with no staged changes,
     // so the check is skipped when amending.
     if (!params.amend) {
-      const staged = runGit(["diff", "--cached", "--quiet"]);
+      const staged = runGit(["diff", "--cached", "--quiet"], cwd);
       if (staged.exitCode === 0) {
         return toToolResult(
           "git-me: nothing staged to commit. Stage your changes first (e.g. `git add`) and try again. Use git_diff target=staged to inspect.",
@@ -69,8 +72,8 @@ export const commitTool: ToolDefinition<typeof Params, GitDetails> = {
 
     const decision = await confirmWrite(ctx, {
       title: params.amend
-        ? "Amend last commit with this message?"
-        : "Commit staged changes with this message?",
+        ? `Amend last commit with this message?${repoContextLabel(cwd, ctx.cwd)}`
+        : `Commit staged changes with this message?${repoContextLabel(cwd, ctx.cwd)}`,
       editableText: prefill,
       summary,
     });
@@ -92,7 +95,7 @@ export const commitTool: ToolDefinition<typeof Params, GitDetails> = {
     // Apply. `git commit -F -` reads the message from stdin; we spawn
     // asynchronously because we need to write to stdin.
     try {
-      const result = await commitWithMessage(params.amend === true, message);
+      const result = await commitWithMessage(params.amend === true, message, cwd);
       if (result.exitCode !== 0) {
         return toToolResult(
           result.stderr.trim() ||
@@ -111,13 +114,17 @@ export const commitTool: ToolDefinition<typeof Params, GitDetails> = {
 // in lib/auth.ts but is the one place that needs write access. A 30s timeout
 // (matching spawnChecked) prevents a hung pre-commit hook or a GPG/SSH
 // signing TTY prompt from locking the agent turn forever.
-async function commitWithMessage(amend: boolean, message: string) {
+async function commitWithMessage(
+  amend: boolean,
+  message: string,
+  cwd: string,
+) {
   return await new Promise<{ stdout: string; stderr: string; exitCode: number }>(
     (resolve) => {
       const args = ["commit", "-F", "-"];
       if (amend) args.push("--amend");
       const child = spawn("git", args, {
-        cwd: process.cwd(),
+        cwd,
         stdio: ["pipe", "pipe", "pipe"],
       });
       let stdout = "";

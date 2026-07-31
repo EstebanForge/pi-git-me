@@ -6,9 +6,12 @@ import { toToolResult } from "../result";
 import {
   GIT_PR_INFO_TITLE,
   GIT_PR_INFO_DESCRIPTION,
+  CWD_DESCRIPTION,
 } from "../prompts";
 
-const Params = Type.Object({});
+const Params = Type.Object({
+  cwd: Type.Optional(Type.String({ description: CWD_DESCRIPTION })),
+});
 
 export const prInfoTool: ToolDefinition<typeof Params, undefined> = {
   name: "git_pr_info",
@@ -17,21 +20,22 @@ export const prInfoTool: ToolDefinition<typeof Params, undefined> = {
   parameters: Params,
   async execute(
     _toolCallId,
-    _params,
+    params,
     _signal,
     _onUpdate,
-    _ctx,
+    ctx,
   ): Promise<AgentToolResult<undefined>> {
+    const cwd = params.cwd ?? ctx.cwd;
     // Preflight env so a missing repo or missing/unauthed `gh` surfaces one
     // actionable error instead of a generic "no PR" that hides the cause.
     try {
-      requireGitRepo();
+      requireGitRepo(cwd);
       requireGh();
     } catch (err) {
       if (err instanceof GitMeEnvError) return toToolResult(err.message);
       throw err;
     }
-    const pr = ghPrForCurrentBranch();
+    const pr = ghPrForCurrentBranch(cwd);
     if (!pr) {
       return toToolResult(
         "git-me: no PR found for the current branch. Use git_pr_upsert to open one, or pass a different branch.",

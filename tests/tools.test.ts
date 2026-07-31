@@ -26,10 +26,16 @@ const { cpMock } = vi.hoisted(() => {
   };
   const state: {
     routes: Route[];
-    calls: Array<{ cmd: string; args: string[] }>;
+    // cwd is the options.cwd spawnSync was called with (3rd arg). Undefined
+    // when the caller let it default. Lets tests assert cwd routing.
+    calls: Array<{ cmd: string; args: string[]; cwd?: string }>;
   } = { routes: [], calls: [] };
-  const spawnSyncMock = (cmd: string, args: string[]): FakeResult => {
-    state.calls.push({ cmd, args: [...args] });
+  const spawnSyncMock = (
+    cmd: string,
+    args: string[],
+    opts?: { cwd?: string },
+  ): FakeResult => {
+    state.calls.push({ cmd, args: [...args], cwd: opts?.cwd });
     for (const route of state.routes) {
       if (route.match(cmd, args)) return route.result();
     }
@@ -55,14 +61,20 @@ import { prUpsertTool } from "../lib/tools/pr-upsert";
 import { prCommentTool } from "../lib/tools/pr-comment";
 import { issueCommentTool } from "../lib/tools/issue-comment";
 import { prReviewTool } from "../lib/tools/pr-review";
+import { statusTool } from "../lib/tools/status";
+import { diffTool } from "../lib/tools/diff";
+import { logTool } from "../lib/tools/log";
+import { currentBranchTool } from "../lib/tools/current-branch";
+import { prInfoTool } from "../lib/tools/pr-info";
 import {
   setConfirmWriteEnabled,
   setAllowHeadlessWriteEnabled,
 } from "../lib/confirm";
-import { invokeWithCtx, makeCtx, makeStubUI, firstText } from "./_helpers";
+import { invokeWithCtx, makeCtx, makeStubUI, firstText, DEFAULT_CTX_CWD } from "./_helpers";
 
 type FakeResult = { stdout: string; stderr: string; status: number };
 type Route = { match: (c: string, a: string[]) => boolean; result: () => FakeResult };
+type RecordedCall = { cmd: string; args: string[]; cwd?: string };
 
 // Default routes: a repo is present, gh is installed and authed, something is
 // staged (so non-amend commits reach the gate), and the current branch has no
@@ -82,7 +94,7 @@ function setupRoutes(extra: Route[] = []): void {
   cpMock.state.calls = [];
 }
 
-function findCall(cmd: string, prefix: string[]): { cmd: string; args: string[] } | undefined {
+function findCall(cmd: string, prefix: string[]): RecordedCall | undefined {
   return cpMock.state.calls.find(
     (c) => c.cmd === cmd && c.args.slice(0, prefix.length).join(" ") === prefix.join(" "),
   );
@@ -467,5 +479,82 @@ describe("git_commit - amend path skips the staged pre-flight", () => {
     );
     expect(firstText(result)).toContain("commit cancelled");
     expect(ui.prompts[0].title).toContain("Amend");
+  });
+});
+
+// -------------------------------------------------- cwd routing ------------
+// Every tool accepts an optional `cwd` so the agent can operate on a
+// different repository than the one pi was started in. The read tools are
+// gate-free and uniform, so a describe.each pins BOTH directions (explicit
+// cwd reaches the git/gh call; omitted cwd falls back to ctx.cwd) across all
+// five. The write tools are then covered individually: preflight calls
+// (gate cancelled) for commit / pr-upsert / pr-comment / pr-review, and an
+// APPLY-path call (gate accepted) for issue-comment, so a future regression
+// dropping `cwd` from any one runGit/runGh call site is caught.
+
+const TARGET_CWD = "/explicit/target/repo";
+
+const READ_CWD_CASES = [
+  { name: "git_status", tool: statusTool, params: {}, cmd: "git", prefix: ["status"] },
+  { name: "git_diff", tool: diffTool, params: {}, cmd: "git", prefix: ["diff"] },
+  { name: "git_log", tool: logTool, params: {}, cmd: "git", prefix: ["log"] },
+  { name: "git_current_branch", tool: currentBranchTool, params: {}, cmd: "git", prefix: ["symbolic-ref"] },
+  { name: "git_pr_info", tool: prInfoTool, params: {}, cmd: "gh", prefix: ["pr", "view"] },
+];
+
+describe.each(READ_CWD_CASES)("cwd routing: $name", ({ tool, params, cmd, prefix }) => {
+  it("passes explicit cwd to its git/gh call", async () => {
+    await invokeWithCtx(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      tool as any,
+      { ...params, cwd: TARGET_CWD } as any,
+      makeCtx(makeStubUI()),
+    );
+    expect(findCall(cmd, prefix)?.cwd).toBe(TARGET_CWD);
+  });
+
+  it("falls back to ctx.cwd when cwd is omitted", async () => {
+    await invokeWithCtx(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      tool as any,
+      params as any,
+      makeCtx(makeStubUI()),
+    );
+    expect(findCall(cmd, prefix)?.cwd).toBe(DEFAULT_CTX_CWD);
+  });
+});
+
+describe("cwd routing: write tools", () => {
+  it("git_commit: preflight (rev-parse + diff --cached) carries explicit cwd (gate cancelled)", async () => {
+    const ui = makeStubUI({ editorResponse: undefined });
+    await invokeWithCtx(commitTool, { subject: "feat: x", cwd: TARGET_CWD }, makeCtx(ui));
+    expect(findCall("git", ["rev-parse"])?.cwd).toBe(TARGET_CWD);
+    expect(findCall("git", ["diff"])?.cwd).toBe(TARGET_CWD);
+  });
+
+  it("git_pr_upsert: preflight gh pr view carries explicit cwd (gate cancelled)", async () => {
+    const ui = makeStubUI({ editorResponse: undefined });
+    await invokeWithCtx(prUpsertTool, { title: "t", body: "b", cwd: TARGET_CWD }, makeCtx(ui));
+    expect(findCall("gh", ["pr", "view"])?.cwd).toBe(TARGET_CWD);
+  });
+
+  it("git_pr_comment: current-branch PR lookup carries explicit cwd (fails closed, no gate)", async () => {
+    await invokeWithCtx(prCommentTool, { body: "b", cwd: TARGET_CWD }, makeCtx(makeStubUI()));
+    expect(findCall("gh", ["pr", "view"])?.cwd).toBe(TARGET_CWD);
+  });
+
+  it("git_pr_review: current-branch PR lookup carries explicit cwd (fails closed, no gate)", async () => {
+    await invokeWithCtx(prReviewTool, { body: "b", cwd: TARGET_CWD }, makeCtx(makeStubUI()));
+    expect(findCall("gh", ["pr", "view"])?.cwd).toBe(TARGET_CWD);
+  });
+
+  it("git_issue_comment: apply gh issue comment carries explicit cwd (gate accepted)", async () => {
+    const ui = makeStubUI({ editorResponse: "ship it" });
+    await invokeWithCtx(
+      issueCommentTool,
+      { number: 7, body: "ship it", cwd: TARGET_CWD },
+      makeCtx(ui),
+    );
+    expect(findCall("gh", ["issue", "comment"])?.cwd).toBe(TARGET_CWD);
   });
 });

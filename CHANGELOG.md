@@ -1,5 +1,31 @@
 # Changelog
 
+## 1.1.0 — 2026-07-31
+
+### Added
+
+- Optional `cwd` parameter on all 10 tools (`git_status`, `git_diff`,
+  `git_log`, `git_current_branch`, `git_pr_info`, `git_commit`,
+  `git_pr_upsert`, `git_pr_comment`, `git_pr_review`, `git_issue_comment`).
+  Set it to operate on a different repository than the one pi was started
+  in (a sibling repo, a subdirectory, a monorepo member). Omit it to keep
+  the current behavior.
+
+### Changed
+
+- Tools now default their working directory to `ctx.cwd` (the agent's
+  current directory) instead of `process.cwd()`. Same value in a normal pi
+  run, but `ctx.cwd` is the source of truth, so a session that switched
+  directories mid-run is honored. The `/git` command's repo guard follows
+  the same default. Backward-compatible: every `cwd` argument is optional
+  and the default matches prior behavior when pi is launched in a repo.
+- When a write tool is redirected to a different repository via `cwd`, the
+  review dialog now names that repository in its title (e.g. `Commit staged
+  changes with this message? (repo: /path)`). Without this, an agent
+  passing `cwd` could redirect a commit / PR / comment and the human review
+  gate would not show it. The label appears only when the target differs
+  from the session directory, so normal runs are unchanged.
+
 ## 1.0.0 — 2026-07-31
 
 First stable release. Hardening pass from the 0.2.0 scaffold, driven by a

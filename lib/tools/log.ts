@@ -6,6 +6,7 @@ import {
   GIT_LOG_TITLE,
   GIT_LOG_DESCRIPTION,
   GIT_LOG_LIMIT_DESCRIPTION,
+  CWD_DESCRIPTION,
 } from "../prompts";
 
 const Params = Type.Object({
@@ -16,6 +17,7 @@ const Params = Type.Object({
       maximum: 100,
     }),
   ),
+  cwd: Type.Optional(Type.String({ description: CWD_DESCRIPTION })),
 });
 
 export const logTool: ToolDefinition<typeof Params, undefined> = {
@@ -28,9 +30,10 @@ export const logTool: ToolDefinition<typeof Params, undefined> = {
     params: Static<typeof Params>,
     _signal,
     _onUpdate,
-    _ctx,
+    ctx,
   ): Promise<AgentToolResult<undefined>> {
-    const entries = gitLog(params.limit ?? 10, process.cwd());
+    const cwd = params.cwd ?? ctx.cwd;
+    const entries = gitLog(params.limit ?? 10, cwd);
     if (entries.length === 0) {
       return toToolResult("(no commits on the current branch)");
     }

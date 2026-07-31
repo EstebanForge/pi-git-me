@@ -96,9 +96,20 @@ export function makeStubUI(
 
 // Build the ctx shape ToolDefinition.execute expects. Minimal projection so
 // tests do not need to import the full pi-coding-agent ctx type.
-export function makeCtx(ui: StubUI): {
+//
+// cwd defaults to a fixed sentinel so tests can assert that a tool, when
+// invoked WITHOUT an explicit params.cwd, falls back to ctx.cwd (the
+// sentinel) rather than silently to process.cwd(). Pass a different cwd to
+// simulate the agent running in another repository.
+export const DEFAULT_CTX_CWD = "/fake/agent/cwd";
+
+export function makeCtx(
+  ui: StubUI,
+  options: { cwd?: string } = {},
+): {
   hasUI: boolean;
   ui: StubUI["ui"];
+  cwd: string;
 } {
-  return { hasUI: ui.hasUI, ui: ui.ui };
+  return { hasUI: ui.hasUI, ui: ui.ui, cwd: options.cwd ?? DEFAULT_CTX_CWD };
 }

@@ -2,7 +2,7 @@ import { Type, type Static } from "typebox";
 import type { AgentToolResult, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { runGh, requireGitRepo, requireGh, GitMeEnvError } from "../auth";
 import { confirmWrite } from "../confirm";
-import { describePrPayload } from "../format";
+import { describePrPayload, repoContextLabel } from "../format";
 import { ghPrForCurrentBranch } from "../git";
 import { toToolResult, errorText, type GitDetails } from "../result";
 import {
@@ -12,6 +12,7 @@ import {
   PR_UPSERT_BODY_DESCRIPTION,
   PR_UPSERT_BASE_DESCRIPTION,
   PR_UPSERT_DRAFT_DESCRIPTION,
+  CWD_DESCRIPTION,
 } from "../prompts";
 
 // Create or update the PR for the current branch. The agent supplies title
@@ -28,6 +29,7 @@ const Params = Type.Object({
   body: Type.String({ description: PR_UPSERT_BODY_DESCRIPTION, minLength: 1 }),
   base: Type.Optional(Type.String({ description: PR_UPSERT_BASE_DESCRIPTION })),
   draft: Type.Optional(Type.Boolean({ description: PR_UPSERT_DRAFT_DESCRIPTION })),
+  cwd: Type.Optional(Type.String({ description: CWD_DESCRIPTION })),
 });
 
 // Internal separators the editor prefill uses to keep title/body in one
@@ -69,8 +71,9 @@ export const prUpsertTool: ToolDefinition<typeof Params, GitDetails> = {
     _onUpdate,
     ctx,
   ): Promise<AgentToolResult<GitDetails>> {
+    const cwd = params.cwd ?? ctx.cwd;
     try {
-      requireGitRepo();
+      requireGitRepo(cwd);
       requireGh();
     } catch (err) {
       if (err instanceof GitMeEnvError) return toToolResult(err.message);
@@ -82,7 +85,7 @@ export const prUpsertTool: ToolDefinition<typeof Params, GitDetails> = {
     // the dialog tell the user whether they are CREATING a new public PR or
     // OVERWRITING an existing one - materially different consequences that
     // used to share one vague prompt.
-    const existing = ghPrForCurrentBranch();
+    const existing = ghPrForCurrentBranch(cwd);
     const base = params.base ?? "main";
 
     const prefill = toPrefill(params.title, params.body);
@@ -91,8 +94,8 @@ export const prUpsertTool: ToolDefinition<typeof Params, GitDetails> = {
     const decision = await confirmWrite(ctx, {
       title:
         existing === null
-          ? `Open a new PR (${base} <- HEAD) with this title + body?`
-          : `Overwrite PR #${existing.number} title + body?`,
+          ? `Open a new PR (${base} <- HEAD) with this title + body?${repoContextLabel(cwd, ctx.cwd)}`
+          : `Overwrite PR #${existing.number} title + body?${repoContextLabel(cwd, ctx.cwd)}`,
       editableText: prefill,
       summary,
     });
@@ -125,7 +128,7 @@ export const prUpsertTool: ToolDefinition<typeof Params, GitDetails> = {
           base,
         ];
         if (params.draft) args.push("--draft");
-        const result = runGh(args);
+        const result = runGh(args, cwd);
         if (result.exitCode !== 0) {
           const detail = result.stderr.trim() || result.stdout.trim();
           return toToolResult(
@@ -148,7 +151,7 @@ export const prUpsertTool: ToolDefinition<typeof Params, GitDetails> = {
         title,
         "--body",
         body,
-      ]);
+      ], cwd);
       if (result.exitCode !== 0) {
         const detail = result.stderr.trim() || result.stdout.trim();
         return toToolResult(

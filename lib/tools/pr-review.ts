@@ -2,7 +2,7 @@ import { Type, type Static } from "typebox";
 import type { AgentToolResult, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { runGh, requireGitRepo, requireGh, GitMeEnvError } from "../auth";
 import { confirmWrite } from "../confirm";
-import { describeReviewPayload } from "../format";
+import { describeReviewPayload, repoContextLabel } from "../format";
 import { ghPrForCurrentBranch } from "../git";
 import { toToolResult, errorText, type GitDetails } from "../result";
 import {
@@ -11,6 +11,7 @@ import {
   PR_REVIEW_BODY_DESCRIPTION,
   PR_REVIEW_PR_DESCRIPTION,
   PR_REVIEW_EVENT_DESCRIPTION,
+  CWD_DESCRIPTION,
 } from "../prompts";
 
 // Post a PR review comment as YOU. The agent supplies the review body; this
@@ -37,6 +38,7 @@ const Params = Type.Object({
       enum: ["COMMENT", "APPROVE", "REQUEST_CHANGES"],
     }),
   ),
+  cwd: Type.Optional(Type.String({ description: CWD_DESCRIPTION })),
 });
 
 type ReviewEvent = "COMMENT" | "APPROVE" | "REQUEST_CHANGES";
@@ -62,8 +64,9 @@ export const prReviewTool: ToolDefinition<typeof Params, GitDetails> = {
     _onUpdate,
     ctx,
   ): Promise<AgentToolResult<GitDetails>> {
+    const cwd = params.cwd ?? ctx.cwd;
     try {
-      requireGitRepo();
+      requireGitRepo(cwd);
       requireGh();
     } catch (err) {
       if (err instanceof GitMeEnvError) return toToolResult(err.message);
@@ -75,7 +78,7 @@ export const prReviewTool: ToolDefinition<typeof Params, GitDetails> = {
     // Resolve PR number: explicit > current-branch PR > fail closed.
     let prNumber = params.pr;
     if (prNumber === undefined) {
-      const current = ghPrForCurrentBranch();
+      const current = ghPrForCurrentBranch(cwd);
       if (current === null) {
         return toToolResult(
           "git-me: no PR found for the current branch. Pass `pr` explicitly or open a PR first (git_pr_upsert with create).",
@@ -85,11 +88,11 @@ export const prReviewTool: ToolDefinition<typeof Params, GitDetails> = {
     }
 
     const eventLabel =
-      event === "APPROVE"
+      (event === "APPROVE"
         ? "Approve this PR with this body?"
         : event === "REQUEST_CHANGES"
           ? "Request changes on this PR with this body?"
-          : "Post this review comment on this PR?";
+          : "Post this review comment on this PR?") + repoContextLabel(cwd, ctx.cwd);
 
     const decision = await confirmWrite(ctx, {
       title: eventLabel,
@@ -127,7 +130,7 @@ export const prReviewTool: ToolDefinition<typeof Params, GitDetails> = {
             ? ["pr", "review", String(prNumber), "--request-changes", "--body", body]
             : ["pr", "review", String(prNumber), "--comment", "--body", body];
 
-      const result = runGh(args);
+      const result = runGh(args, cwd);
       if (result.exitCode !== 0) {
         const detail = result.stderr.trim() || result.stdout.trim();
         return toToolResult(

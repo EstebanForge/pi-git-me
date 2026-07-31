@@ -8,6 +8,7 @@ import {
   GIT_DIFF_TARGET_DESCRIPTION,
   GIT_DIFF_BASE_DESCRIPTION,
   GIT_DIFF_MAX_BYTES_DESCRIPTION,
+  CWD_DESCRIPTION,
 } from "../prompts";
 
 const Params = Type.Object({
@@ -25,6 +26,7 @@ const Params = Type.Object({
       maximum: 1_000_000,
     }),
   ),
+  cwd: Type.Optional(Type.String({ description: CWD_DESCRIPTION })),
 });
 
 type DiffTarget = "staged" | "unstaged" | "all" | "branch";
@@ -48,11 +50,12 @@ export const diffTool: ToolDefinition<typeof Params, undefined> = {
     params: Static<typeof Params>,
     _signal,
     _onUpdate,
-    _ctx,
+    ctx,
   ): Promise<AgentToolResult<undefined>> {
+    const cwd = params.cwd ?? ctx.cwd;
     const text = gitDiff(
       parseDiffTarget(params.target),
-      process.cwd(),
+      cwd,
       params.base ?? "main",
       params.max_bytes ?? 50_000,
     );

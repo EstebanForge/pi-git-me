@@ -6,6 +6,7 @@ import {
   GIT_STATUS_TITLE,
   GIT_STATUS_DESCRIPTION,
   GIT_STATUS_MAX_LINES_DESCRIPTION,
+  CWD_DESCRIPTION,
 } from "../prompts";
 
 const Params = Type.Object({
@@ -16,6 +17,7 @@ const Params = Type.Object({
       maximum: 5000,
     }),
   ),
+  cwd: Type.Optional(Type.String({ description: CWD_DESCRIPTION })),
 });
 
 export const statusTool: ToolDefinition<typeof Params, undefined> = {
@@ -28,9 +30,10 @@ export const statusTool: ToolDefinition<typeof Params, undefined> = {
     params: Static<typeof Params>,
     _signal,
     _onUpdate,
-    _ctx,
+    ctx,
   ): Promise<AgentToolResult<undefined>> {
-    const text = gitStatus(process.cwd(), params.max_lines ?? 200);
+    const cwd = params.cwd ?? ctx.cwd;
+    const text = gitStatus(cwd, params.max_lines ?? 200);
     return toToolResult(text);
   },
 };

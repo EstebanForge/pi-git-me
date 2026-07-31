@@ -147,7 +147,7 @@ function gitMe(pi: ExtensionAPI): void {
         "status", "diff", "log", "branch", "pr",
         "commit", "pr-create", "pr-comment", "review", "issue-comment",
       ]);
-      if (REPO_VERBS.has(verb) && !isGitRepo()) {
+      if (REPO_VERBS.has(verb) && !isGitRepo(ctx.cwd)) {
         ctx.ui.notify(
           "git-me: cwd is not inside a git repository. Run pi from inside a repo, or use /git config | confirm | headless to manage settings.",
           "warning",

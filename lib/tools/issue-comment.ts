@@ -2,13 +2,14 @@ import { Type, type Static } from "typebox";
 import type { AgentToolResult, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { runGh, requireGitRepo, requireGh, GitMeEnvError } from "../auth";
 import { confirmWrite } from "../confirm";
-import { describeReviewPayload } from "../format";
+import { describeReviewPayload, repoContextLabel } from "../format";
 import { toToolResult, errorText, type GitDetails } from "../result";
 import {
   ISSUE_COMMENT_TITLE,
   ISSUE_COMMENT_DESCRIPTION,
   ISSUE_COMMENT_BODY_DESCRIPTION,
   ISSUE_COMMENT_NUMBER_DESCRIPTION,
+  CWD_DESCRIPTION,
 } from "../prompts";
 
 // Post a comment on a GitHub issue. The agent supplies the issue number and
@@ -27,6 +28,7 @@ const Params = Type.Object({
     minimum: 1,
   }),
   body: Type.String({ description: ISSUE_COMMENT_BODY_DESCRIPTION, minLength: 1 }),
+  cwd: Type.Optional(Type.String({ description: CWD_DESCRIPTION })),
 });
 
 export const issueCommentTool: ToolDefinition<typeof Params, GitDetails> = {
@@ -41,8 +43,9 @@ export const issueCommentTool: ToolDefinition<typeof Params, GitDetails> = {
     _onUpdate,
     ctx,
   ): Promise<AgentToolResult<GitDetails>> {
+    const cwd = params.cwd ?? ctx.cwd;
     try {
-      requireGitRepo();
+      requireGitRepo(cwd);
       requireGh();
     } catch (err) {
       if (err instanceof GitMeEnvError) return toToolResult(err.message);
@@ -50,7 +53,7 @@ export const issueCommentTool: ToolDefinition<typeof Params, GitDetails> = {
     }
 
     const decision = await confirmWrite(ctx, {
-      title: `Post this comment on issue #${params.number}?`,
+      title: `Post this comment on issue #${params.number}?${repoContextLabel(cwd, ctx.cwd)}`,
       editableText: params.body,
       summary: describeReviewPayload(params.body),
     });
@@ -76,7 +79,7 @@ export const issueCommentTool: ToolDefinition<typeof Params, GitDetails> = {
         String(params.number),
         "--body",
         body,
-      ]);
+      ], cwd);
       if (result.exitCode !== 0) {
         const detail = result.stderr.trim() || result.stdout.trim();
         return toToolResult(
