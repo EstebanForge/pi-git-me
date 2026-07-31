@@ -1,0 +1,103 @@
+import { Type, type Static } from "typebox";
+import type { AgentToolResult, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { runGh, requireGitRepo, requireGh, GitMeEnvError } from "../auth";
+import { confirmWrite } from "../confirm";
+import { describeReviewPayload } from "../format";
+import { ghPrForCurrentBranch } from "../git";
+import { toToolResult, errorText, type GitDetails } from "../result";
+import {
+  PR_COMMENT_TITLE,
+  PR_COMMENT_DESCRIPTION,
+  PR_COMMENT_BODY_DESCRIPTION,
+  PR_COMMENT_NUMBER_DESCRIPTION,
+} from "../prompts";
+
+// Post a top-level conversation comment on a pull request (via
+// `gh pr comment <number> --body`). This is distinct from `git_pr_review`,
+// which posts a REVIEW event (COMMENT / APPROVE / REQUEST_CHANGES) on the
+// PR's review summary: that updates the review state, this is just a normal
+// comment on the PR conversation.
+//
+// The agent supplies the PR number and the comment body; this tool runs the
+// two-stage human gate (headless guard + editable preview) and then applies.
+//
+// `pr` defaults to the PR for the current branch. When the branch has no PR,
+// the tool fails closed with a readable message - the user should run
+// /git pr first to open one.
+
+const Params = Type.Object({
+  body: Type.String({ description: PR_COMMENT_BODY_DESCRIPTION, minLength: 1 }),
+  pr: Type.Optional(
+    Type.Integer({
+      description: PR_COMMENT_NUMBER_DESCRIPTION,
+      minimum: 1,
+    }),
+  ),
+});
+
+export const prCommentTool: ToolDefinition<typeof Params, GitDetails> = {
+  name: "git_pr_comment",
+  label: PR_COMMENT_TITLE,
+  description: PR_COMMENT_DESCRIPTION,
+  parameters: Params,
+  async execute(
+    _toolCallId: string,
+    params: Static<typeof Params>,
+    _signal,
+    _onUpdate,
+    ctx,
+  ): Promise<AgentToolResult<GitDetails>> {
+    try {
+      requireGitRepo();
+      requireGh();
+    } catch (err) {
+      if (err instanceof GitMeEnvError) return toToolResult(err.message);
+      throw err;
+    }
+
+    // Resolve PR number: explicit > current-branch PR > fail closed.
+    let prNumber = params.pr;
+    if (prNumber === undefined) {
+      const current = ghPrForCurrentBranch();
+      if (current === null) {
+        return toToolResult(
+          "git-me: no PR found for the current branch. Pass `pr` explicitly or open a PR first (git_pr_upsert with create).",
+        );
+      }
+      prNumber = current.number;
+    }
+
+    const decision = await confirmWrite(ctx, {
+      title: `Post this comment on PR #${prNumber}?`,
+      editableText: params.body,
+      summary: describeReviewPayload(params.body),
+    });
+    if (!decision.proceed) {
+      return toToolResult(
+        ctx.hasUI
+          ? `git-me: PR comment cancelled by user. Nothing was sent to gh.`
+          : `git-me: PR comment not posted (headless mode; no UI to review). Use /git headless on to allow unsupervised comments.`,
+      );
+    }
+
+    const body = (decision.text ?? params.body).trimEnd();
+    if (!body) {
+      return toToolResult(
+        "git-me: PR comment body is empty after edit; nothing was posted.",
+      );
+    }
+
+    try {
+      const result = runGh(["pr", "comment", String(prNumber), "--body", body]);
+      if (result.exitCode !== 0) {
+        const detail = result.stderr.trim() || result.stdout.trim();
+        return toToolResult(
+          `git-me: \`gh pr comment\` failed (exit ${result.exitCode}). ${detail}`,
+        );
+      }
+      return toToolResult(`Posted comment on PR #${prNumber}:\n${body}`);
+    } catch (err) {
+      return toToolResult(errorText(err));
+    }
+  },
+};
