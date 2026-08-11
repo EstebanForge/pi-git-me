@@ -4,7 +4,7 @@ import { spawn } from "node:child_process";
 import { runGit, requireGitRepo, GitMeEnvError } from "../auth";
 import { confirmWrite } from "../confirm";
 import { formatCommitMessage, oneLine, repoContextLabel } from "../format";
-import { toToolResult, errorText, postedContentBlock, type GitDetails } from "../result";
+import { toToolResult, errorText, postedContentExtras, type GitDetails } from "../result";
 import {
   COMMIT_TITLE,
   COMMIT_DESCRIPTION,
@@ -107,14 +107,10 @@ export const commitTool: ToolDefinition<typeof Params, GitDetails> = {
       }
       const verb = params.amend ? "Amended last commit with" : "Committed staged changes with";
       // message ends with a single trailing newline (git requires it); strip
-      // it for display and for the details mirror so neither echoes a blank
-      // last line.
+      // it so the echo (when there is one) does not add a blank last line.
       const finalMessage = message.trimEnd();
-      const edited = decision.edited ?? false;
-      return toToolResult(
-        `${verb} message.${postedContentBlock(finalMessage, edited)}`,
-        { postedContent: finalMessage, edited },
-      );
+      const { extraText, details } = postedContentExtras(finalMessage, decision.edited ?? false);
+      return toToolResult(`${verb} message.${extraText}`, details);
     } catch (err) {
       return toToolResult(errorText(err));
     }

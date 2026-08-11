@@ -231,11 +231,11 @@ describe("git_pr_comment - gate wiring", () => {
     expect(call).toBeDefined();
     expect(call!.args).toEqual(["pr", "comment", "42", "--body", "ship it"]);
     expect(firstText(result)).toContain("Posted comment on PR #42");
-    // Success result echoes the exact content + the edited flag so later
-    // turns know what actually shipped (here: unchanged draft).
-    expect(firstText(result)).toContain("Edited by user: no");
-    expect(firstText(result)).toContain("Final content sent:");
-    expect(result.details).toMatchObject({ postedContent: "ship it", edited: false });
+    // Unchanged draft: the agent already has its own text in context, so the
+    // result must NOT re-echo it (no block, no details) to save tokens.
+    expect(firstText(result)).not.toContain("Edited by user");
+    expect(firstText(result)).not.toContain("Final content sent");
+    expect(result.details).toBeUndefined();
   });
 
   it("edits in the dialog -> posts the edited body and reports edited=yes", async () => {

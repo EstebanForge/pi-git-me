@@ -4,7 +4,7 @@ import { runGh, requireGitRepo, requireGh, GitMeEnvError } from "../auth";
 import { confirmWrite } from "../confirm";
 import { describePrPayload, repoContextLabel } from "../format";
 import { ghPrForCurrentBranch } from "../git";
-import { toToolResult, errorText, postedContentBlock, type GitDetails } from "../result";
+import { toToolResult, errorText, postedContentExtras, type GitDetails } from "../result";
 import {
   PR_UPSERT_TITLE,
   PR_UPSERT_DESCRIPTION,
@@ -120,10 +120,11 @@ export const prUpsertTool: ToolDefinition<typeof Params, GitDetails> = {
         "git-me: PR title and body are both required. Edit left one empty; nothing was applied.",
       );
     }
-    // Hoisted so both the CREATE and EDIT success returns can echo the exact
-    // title + body that reached gh, plus whether the user changed the prefill.
-    const edited = decision.edited ?? false;
+    // Hoisted so both the CREATE and EDIT success returns can echo the title
+    // + body that reached gh, but ONLY when the user changed the prefill
+    // (otherwise the agent already has its own draft in context).
     const postedContent = `Title: ${title}\n\n${body}`;
+    const { extraText, details } = postedContentExtras(postedContent, decision.edited ?? false);
 
     try {
       if (existing === null) {
@@ -149,8 +150,8 @@ export const prUpsertTool: ToolDefinition<typeof Params, GitDetails> = {
         // gh pr create prints the new PR URL on stdout.
         const url = result.stdout.trim();
         return toToolResult(
-          `Opened PR ${base} <- HEAD.\n  url: ${url}${postedContentBlock(postedContent, edited)}`,
-          { postedContent, edited },
+          `Opened PR ${base} <- HEAD.\n  url: ${url}${extraText}`,
+          details,
         );
       }
 
@@ -172,8 +173,8 @@ export const prUpsertTool: ToolDefinition<typeof Params, GitDetails> = {
         );
       }
       return toToolResult(
-        `Updated PR #${existing.number} (${existing.headRefName} -> ${existing.baseRefName}).\n  url: ${existing.url}${postedContentBlock(postedContent, edited)}`,
-        { postedContent, edited },
+        `Updated PR #${existing.number} (${existing.headRefName} -> ${existing.baseRefName}).\n  url: ${existing.url}${extraText}`,
+        details,
       );
     } catch (err) {
       return toToolResult(errorText(err));

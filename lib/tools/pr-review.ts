@@ -4,7 +4,7 @@ import { runGh, requireGitRepo, requireGh, GitMeEnvError } from "../auth";
 import { confirmWrite } from "../confirm";
 import { describeReviewPayload, repoContextLabel } from "../format";
 import { ghPrForCurrentBranch } from "../git";
-import { toToolResult, errorText, postedContentBlock, type GitDetails } from "../result";
+import { toToolResult, errorText, postedContentExtras, type GitDetails } from "../result";
 import {
   PR_REVIEW_TITLE,
   PR_REVIEW_DESCRIPTION,
@@ -146,11 +146,8 @@ export const prReviewTool: ToolDefinition<typeof Params, GitDetails> = {
           : event === "REQUEST_CHANGES"
             ? "Requested changes on"
             : "Posted review comment on";
-      const edited = decision.edited ?? false;
-      return toToolResult(
-        `${verb} PR #${prNumber}.${postedContentBlock(body, edited)}`,
-        { postedContent: body, edited },
-      );
+      const { extraText, details } = postedContentExtras(body, decision.edited ?? false);
+      return toToolResult(`${verb} PR #${prNumber}.${extraText}`, details);
     } catch (err) {
       return toToolResult(errorText(err));
     }

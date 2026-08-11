@@ -4,7 +4,7 @@ import { runGh, requireGitRepo, requireGh, GitMeEnvError } from "../auth";
 import { confirmWrite } from "../confirm";
 import { describeReviewPayload, repoContextLabel } from "../format";
 import { ghPrForCurrentBranch } from "../git";
-import { toToolResult, errorText, postedContentBlock, type GitDetails } from "../result";
+import { toToolResult, errorText, postedContentExtras, type GitDetails } from "../result";
 import {
   PR_COMMENT_TITLE,
   PR_COMMENT_DESCRIPTION,
@@ -100,11 +100,8 @@ export const prCommentTool: ToolDefinition<typeof Params, GitDetails> = {
           `git-me: \`gh pr comment\` failed (exit ${result.exitCode}). ${detail}`,
         );
       }
-      const edited = decision.edited ?? false;
-      return toToolResult(
-        `Posted comment on PR #${prNumber}.${postedContentBlock(body, edited)}`,
-        { postedContent: body, edited },
-      );
+      const { extraText, details } = postedContentExtras(body, decision.edited ?? false);
+      return toToolResult(`Posted comment on PR #${prNumber}.${extraText}`, details);
     } catch (err) {
       return toToolResult(errorText(err));
     }
