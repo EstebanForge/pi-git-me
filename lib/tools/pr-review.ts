@@ -4,7 +4,7 @@ import { runGh, requireGitRepo, requireGh, GitMeEnvError } from "../auth";
 import { confirmWrite } from "../confirm";
 import { describeReviewPayload, repoContextLabel } from "../format";
 import { ghPrForCurrentBranch } from "../git";
-import { toToolResult, errorText, type GitDetails } from "../result";
+import { toToolResult, errorText, postedContentBlock, type GitDetails } from "../result";
 import {
   PR_REVIEW_TITLE,
   PR_REVIEW_DESCRIPTION,
@@ -98,6 +98,8 @@ export const prReviewTool: ToolDefinition<typeof Params, GitDetails> = {
       title: eventLabel,
       editableText: params.body,
       summary: describeReviewPayload(params.body),
+      // The applied body is trimEnd()'d before it reaches gh.
+      normalize: (s) => s.trimEnd(),
       // APPROVE / REQUEST_CHANGES are public, stateful, and hard to reverse:
       // force the gate even when git-confirm-write is off, and block them
       // unconditionally in headless mode (the headless opt-in does NOT apply).
@@ -144,7 +146,11 @@ export const prReviewTool: ToolDefinition<typeof Params, GitDetails> = {
           : event === "REQUEST_CHANGES"
             ? "Requested changes on"
             : "Posted review comment on";
-      return toToolResult(`${verb} PR #${prNumber}:\n${body}`);
+      const edited = decision.edited ?? false;
+      return toToolResult(
+        `${verb} PR #${prNumber}.${postedContentBlock(body, edited)}`,
+        { postedContent: body, edited },
+      );
     } catch (err) {
       return toToolResult(errorText(err));
     }

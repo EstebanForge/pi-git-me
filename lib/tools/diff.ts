@@ -1,7 +1,7 @@
 import { Type, type Static } from "typebox";
 import type { AgentToolResult, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { gitDiff } from "../git";
-import { toToolResult } from "../result";
+import { toToolResult, type GitDetails } from "../result";
 import {
   GIT_DIFF_TITLE,
   GIT_DIFF_DESCRIPTION,
@@ -40,7 +40,7 @@ export function parseDiffTarget(raw: string | undefined): DiffTarget {
     : "unstaged";
 }
 
-export const diffTool: ToolDefinition<typeof Params, undefined> = {
+export const diffTool: ToolDefinition<typeof Params, GitDetails> = {
   name: "git_diff",
   label: GIT_DIFF_TITLE,
   description: GIT_DIFF_DESCRIPTION,
@@ -51,7 +51,7 @@ export const diffTool: ToolDefinition<typeof Params, undefined> = {
     _signal,
     _onUpdate,
     ctx,
-  ): Promise<AgentToolResult<undefined>> {
+  ): Promise<AgentToolResult<GitDetails>> {
     const cwd = params.cwd ?? ctx.cwd;
     const text = gitDiff(
       parseDiffTarget(params.target),

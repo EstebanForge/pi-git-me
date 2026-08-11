@@ -1,7 +1,7 @@
 import { Type, type Static } from "typebox";
 import type { AgentToolResult, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { gitLog } from "../git";
-import { toToolResult } from "../result";
+import { toToolResult, type GitDetails } from "../result";
 import {
   GIT_LOG_TITLE,
   GIT_LOG_DESCRIPTION,
@@ -20,7 +20,7 @@ const Params = Type.Object({
   cwd: Type.Optional(Type.String({ description: CWD_DESCRIPTION })),
 });
 
-export const logTool: ToolDefinition<typeof Params, undefined> = {
+export const logTool: ToolDefinition<typeof Params, GitDetails> = {
   name: "git_log",
   label: GIT_LOG_TITLE,
   description: GIT_LOG_DESCRIPTION,
@@ -31,7 +31,7 @@ export const logTool: ToolDefinition<typeof Params, undefined> = {
     _signal,
     _onUpdate,
     ctx,
-  ): Promise<AgentToolResult<undefined>> {
+  ): Promise<AgentToolResult<GitDetails>> {
     const cwd = params.cwd ?? ctx.cwd;
     const entries = gitLog(params.limit ?? 10, cwd);
     if (entries.length === 0) {

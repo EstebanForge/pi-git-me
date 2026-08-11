@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.1.2 — 2026-08-11
+
+### Added
+- **Write tools report the actual posted content and an `edited` flag.** `git_commit`, `git_pr_upsert`, `git_pr_comment`, `git_pr_review`, and `git_issue_comment` append a labeled "Edited by user: yes|no / Final content sent" block to the success result, so the agent's later turns know exactly what reached git or GitHub and whether the human changed the draft in the review dialog. The content is also mirrored into structured `details` as `{ postedContent, edited }`. Previously the body was echoed unlabeled (and `git_pr_upsert` truncated it to 200 characters), so after an edit the agent could keep believing its original draft had shipped verbatim.
+
+### Changed
+- The review gate accepts an optional `normalize` function used to compute the `edited` flag. The five write tools pass the same transformation they apply before transmission (`trimEnd`, and for `git_pr_upsert` the title/body split + trim), so a whitespace-only edit that is stripped before sending no longer registers as edited.
+- `git_pr_upsert` no longer truncates the PR body to 200 characters in its success result; the full title and body are echoed.
+
 ## 1.1.1 — 2026-08-06
 
 ### Changed

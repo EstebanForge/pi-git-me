@@ -4,7 +4,7 @@ import { spawn } from "node:child_process";
 import { runGit, requireGitRepo, GitMeEnvError } from "../auth";
 import { confirmWrite } from "../confirm";
 import { formatCommitMessage, oneLine, repoContextLabel } from "../format";
-import { toToolResult, errorText, type GitDetails } from "../result";
+import { toToolResult, errorText, postedContentBlock, type GitDetails } from "../result";
 import {
   COMMIT_TITLE,
   COMMIT_DESCRIPTION,
@@ -76,6 +76,9 @@ export const commitTool: ToolDefinition<typeof Params, GitDetails> = {
         : `Commit staged changes with this message?${repoContextLabel(cwd, ctx.cwd)}`,
       editableText: prefill,
       summary,
+      // The applied message is trimEnd()'d before it reaches git, so diff the
+      // trimmed strings: a trailing-whitespace-only edit is not a real change.
+      normalize: (s) => s.trimEnd(),
     });
     if (!decision.proceed) {
       return toToolResult(
@@ -103,7 +106,15 @@ export const commitTool: ToolDefinition<typeof Params, GitDetails> = {
         );
       }
       const verb = params.amend ? "Amended last commit with" : "Committed staged changes with";
-      return toToolResult(`${verb} message:\n${message}`);
+      // message ends with a single trailing newline (git requires it); strip
+      // it for display and for the details mirror so neither echoes a blank
+      // last line.
+      const finalMessage = message.trimEnd();
+      const edited = decision.edited ?? false;
+      return toToolResult(
+        `${verb} message.${postedContentBlock(finalMessage, edited)}`,
+        { postedContent: finalMessage, edited },
+      );
     } catch (err) {
       return toToolResult(errorText(err));
     }

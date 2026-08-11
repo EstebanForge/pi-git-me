@@ -1,7 +1,7 @@
 import { Type, type Static } from "typebox";
 import type { AgentToolResult, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { gitStatus } from "../git";
-import { toToolResult } from "../result";
+import { toToolResult, type GitDetails } from "../result";
 import {
   GIT_STATUS_TITLE,
   GIT_STATUS_DESCRIPTION,
@@ -20,7 +20,7 @@ const Params = Type.Object({
   cwd: Type.Optional(Type.String({ description: CWD_DESCRIPTION })),
 });
 
-export const statusTool: ToolDefinition<typeof Params, undefined> = {
+export const statusTool: ToolDefinition<typeof Params, GitDetails> = {
   name: "git_status",
   label: GIT_STATUS_TITLE,
   description: GIT_STATUS_DESCRIPTION,
@@ -31,7 +31,7 @@ export const statusTool: ToolDefinition<typeof Params, undefined> = {
     _signal,
     _onUpdate,
     ctx,
-  ): Promise<AgentToolResult<undefined>> {
+  ): Promise<AgentToolResult<GitDetails>> {
     const cwd = params.cwd ?? ctx.cwd;
     const text = gitStatus(cwd, params.max_lines ?? 200);
     return toToolResult(text);

@@ -4,7 +4,7 @@ import { runGh, requireGitRepo, requireGh, GitMeEnvError } from "../auth";
 import { confirmWrite } from "../confirm";
 import { describePrPayload, repoContextLabel } from "../format";
 import { ghPrForCurrentBranch } from "../git";
-import { toToolResult, errorText, type GitDetails } from "../result";
+import { toToolResult, errorText, postedContentBlock, type GitDetails } from "../result";
 import {
   PR_UPSERT_TITLE,
   PR_UPSERT_DESCRIPTION,
@@ -98,6 +98,13 @@ export const prUpsertTool: ToolDefinition<typeof Params, GitDetails> = {
           : `Overwrite PR #${existing.number} title + body?${repoContextLabel(cwd, ctx.cwd)}`,
       editableText: prefill,
       summary,
+      // gh receives the title and body as separate, trimmed fields. Mirror that
+      // split+trim here so a whitespace-only edit inside either field does not
+      // register as edited when the transmitted title/body are unchanged.
+      normalize: (s) => {
+        const r = fromPrefill(s, params.title);
+        return `${r.title}\n${r.body}`;
+      },
     });
     if (!decision.proceed) {
       return toToolResult(
@@ -113,6 +120,10 @@ export const prUpsertTool: ToolDefinition<typeof Params, GitDetails> = {
         "git-me: PR title and body are both required. Edit left one empty; nothing was applied.",
       );
     }
+    // Hoisted so both the CREATE and EDIT success returns can echo the exact
+    // title + body that reached gh, plus whether the user changed the prefill.
+    const edited = decision.edited ?? false;
+    const postedContent = `Title: ${title}\n\n${body}`;
 
     try {
       if (existing === null) {
@@ -136,8 +147,10 @@ export const prUpsertTool: ToolDefinition<typeof Params, GitDetails> = {
           );
         }
         // gh pr create prints the new PR URL on stdout.
+        const url = result.stdout.trim();
         return toToolResult(
-          `Opened PR ${base} <- HEAD with\n  title: ${title}\n  body: ${body.slice(0, 200)}${body.length > 200 ? "..." : ""}\n  url:   ${result.stdout.trim()}`,
+          `Opened PR ${base} <- HEAD.\n  url: ${url}${postedContentBlock(postedContent, edited)}`,
+          { postedContent, edited },
         );
       }
 
@@ -159,7 +172,8 @@ export const prUpsertTool: ToolDefinition<typeof Params, GitDetails> = {
         );
       }
       return toToolResult(
-        `Updated PR #${existing.number} (${existing.headRefName} -> ${existing.baseRefName}) with\n  title: ${title}\n  body: ${body.slice(0, 200)}${body.length > 200 ? "..." : ""}\n  url:   ${existing.url}`,
+        `Updated PR #${existing.number} (${existing.headRefName} -> ${existing.baseRefName}).\n  url: ${existing.url}${postedContentBlock(postedContent, edited)}`,
+        { postedContent, edited },
       );
     } catch (err) {
       return toToolResult(errorText(err));

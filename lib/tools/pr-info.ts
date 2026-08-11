@@ -2,7 +2,7 @@ import { Type } from "typebox";
 import type { AgentToolResult, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { requireGitRepo, requireGh, GitMeEnvError } from "../auth";
 import { ghPrForCurrentBranch } from "../git";
-import { toToolResult } from "../result";
+import { toToolResult, type GitDetails } from "../result";
 import {
   GIT_PR_INFO_TITLE,
   GIT_PR_INFO_DESCRIPTION,
@@ -13,7 +13,7 @@ const Params = Type.Object({
   cwd: Type.Optional(Type.String({ description: CWD_DESCRIPTION })),
 });
 
-export const prInfoTool: ToolDefinition<typeof Params, undefined> = {
+export const prInfoTool: ToolDefinition<typeof Params, GitDetails> = {
   name: "git_pr_info",
   label: GIT_PR_INFO_TITLE,
   description: GIT_PR_INFO_DESCRIPTION,
@@ -24,7 +24,7 @@ export const prInfoTool: ToolDefinition<typeof Params, undefined> = {
     _signal,
     _onUpdate,
     ctx,
-  ): Promise<AgentToolResult<undefined>> {
+  ): Promise<AgentToolResult<GitDetails>> {
     const cwd = params.cwd ?? ctx.cwd;
     // Preflight env so a missing repo or missing/unauthed `gh` surfaces one
     // actionable error instead of a generic "no PR" that hides the cause.

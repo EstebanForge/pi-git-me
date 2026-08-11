@@ -3,7 +3,7 @@ import type { AgentToolResult, ToolDefinition } from "@earendil-works/pi-coding-
 import { runGh, requireGitRepo, requireGh, GitMeEnvError } from "../auth";
 import { confirmWrite } from "../confirm";
 import { describeReviewPayload, repoContextLabel } from "../format";
-import { toToolResult, errorText, type GitDetails } from "../result";
+import { toToolResult, errorText, postedContentBlock, type GitDetails } from "../result";
 import {
   ISSUE_COMMENT_TITLE,
   ISSUE_COMMENT_DESCRIPTION,
@@ -56,6 +56,7 @@ export const issueCommentTool: ToolDefinition<typeof Params, GitDetails> = {
       title: `Post this comment on issue #${params.number}?${repoContextLabel(cwd, ctx.cwd)}`,
       editableText: params.body,
       summary: describeReviewPayload(params.body),
+      normalize: (s) => s.trimEnd(),
     });
     if (!decision.proceed) {
       return toToolResult(
@@ -86,7 +87,11 @@ export const issueCommentTool: ToolDefinition<typeof Params, GitDetails> = {
           `git-me: \`gh issue comment\` failed (exit ${result.exitCode}). ${detail}`,
         );
       }
-      return toToolResult(`Posted comment on issue #${params.number}:\n${body}`);
+      const edited = decision.edited ?? false;
+      return toToolResult(
+        `Posted comment on issue #${params.number}.${postedContentBlock(body, edited)}`,
+        { postedContent: body, edited },
+      );
     } catch (err) {
       return toToolResult(errorText(err));
     }

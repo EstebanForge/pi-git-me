@@ -70,6 +70,9 @@ describe("confirm gate - editable path (UI present, confirmWrite ON)", () => {
     });
     expect(outcome.proceed).toBe(true);
     expect(outcome.text).toBe("feat: tweaked");
+    // The user changed the draft, so the gate must surface `edited: true` so
+    // write tools can tell the agent its original wording did not ship.
+    expect(outcome.edited).toBe(true);
     expect(ui.prompts).toHaveLength(1);
     expect(ui.prompts[0]).toEqual({
       kind: "editor",
@@ -88,6 +91,43 @@ describe("confirm gate - editable path (UI present, confirmWrite ON)", () => {
     expect(outcome.proceed).toBe(false);
     expect(outcome.text).toBeUndefined();
   });
+
+  it("editor returning the prefill unchanged -> edited=false", async () => {
+    const ui = makeStubUI({ editorResponse: "feat: original" });
+    const outcome = await confirmWrite(ctxWith(ui), {
+      title: "Commit?",
+      editableText: "feat: original",
+      summary: "(ignored)",
+    });
+    expect(outcome.proceed).toBe(true);
+    expect(outcome.text).toBe("feat: original");
+    expect(outcome.edited).toBe(false);
+  });
+
+  it("normalize: a whitespace-only edit that trims away is NOT edited", async () => {
+    const ui = makeStubUI({ editorResponse: "feat: original   " });
+    const outcome = await confirmWrite(ctxWith(ui), {
+      title: "Commit?",
+      editableText: "feat: original",
+      summary: "(ignored)",
+      normalize: (s) => s.trimEnd(),
+    });
+    expect(outcome.proceed).toBe(true);
+    // text is the raw editor return; the flag reflects the NORMALIZED diff.
+    expect(outcome.text).toBe("feat: original   ");
+    expect(outcome.edited).toBe(false);
+  });
+
+  it("normalize: a real edit still reports edited=true", async () => {
+    const ui = makeStubUI({ editorResponse: "feat: original (tweaked)" });
+    const outcome = await confirmWrite(ctxWith(ui), {
+      title: "Commit?",
+      editableText: "feat: original",
+      summary: "(ignored)",
+      normalize: (s) => s.trimEnd(),
+    });
+    expect(outcome.edited).toBe(true);
+  });
 });
 
 describe("confirm gate - confirmWrite OFF (no prompt)", () => {
@@ -101,6 +141,8 @@ describe("confirm gate - confirmWrite OFF (no prompt)", () => {
     });
     expect(outcome.proceed).toBe(true);
     expect(outcome.text).toBe("feat: original");
+    // Gate off: no dialog opened, so the draft cannot have been edited.
+    expect(outcome.edited).toBe(false);
     expect(ui.prompts).toHaveLength(0);
   });
 });
@@ -147,6 +189,8 @@ describe("confirm gate - HEADLESS guard", () => {
     });
     expect(outcome.proceed).toBe(true);
     expect(outcome.text).toBe("feat: original");
+    // Headless fast path: no human reviewed it, so edited is false.
+    expect(outcome.edited).toBe(false);
     expect(ui.prompts).toHaveLength(0);
   });
 

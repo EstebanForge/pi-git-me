@@ -231,6 +231,30 @@ describe("git_pr_comment - gate wiring", () => {
     expect(call).toBeDefined();
     expect(call!.args).toEqual(["pr", "comment", "42", "--body", "ship it"]);
     expect(firstText(result)).toContain("Posted comment on PR #42");
+    // Success result echoes the exact content + the edited flag so later
+    // turns know what actually shipped (here: unchanged draft).
+    expect(firstText(result)).toContain("Edited by user: no");
+    expect(firstText(result)).toContain("Final content sent:");
+    expect(result.details).toMatchObject({ postedContent: "ship it", edited: false });
+  });
+
+  it("edits in the dialog -> posts the edited body and reports edited=yes", async () => {
+    const ui = makeStubUI({ editorResponse: "ship it (edited)" });
+    const result = await invokeWithCtx(
+      prCommentTool,
+      { body: "ship it", pr: 42 },
+      makeCtx(ui),
+    );
+    const call = findCall("gh", ["pr", "comment"]);
+    expect(call).toBeDefined();
+    // The EDITED text is what reaches gh, not the agent's original draft.
+    expect(call!.args).toEqual(["pr", "comment", "42", "--body", "ship it (edited)"]);
+    expect(firstText(result)).toContain("Edited by user: yes");
+    expect(firstText(result)).toContain("ship it (edited)");
+    expect(result.details).toMatchObject({
+      postedContent: "ship it (edited)",
+      edited: true,
+    });
   });
 });
 

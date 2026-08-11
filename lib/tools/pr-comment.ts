@@ -4,7 +4,7 @@ import { runGh, requireGitRepo, requireGh, GitMeEnvError } from "../auth";
 import { confirmWrite } from "../confirm";
 import { describeReviewPayload, repoContextLabel } from "../format";
 import { ghPrForCurrentBranch } from "../git";
-import { toToolResult, errorText, type GitDetails } from "../result";
+import { toToolResult, errorText, postedContentBlock, type GitDetails } from "../result";
 import {
   PR_COMMENT_TITLE,
   PR_COMMENT_DESCRIPTION,
@@ -74,6 +74,8 @@ export const prCommentTool: ToolDefinition<typeof Params, GitDetails> = {
       title: `Post this comment on PR #${prNumber}?${repoContextLabel(cwd, ctx.cwd)}`,
       editableText: params.body,
       summary: describeReviewPayload(params.body),
+      // The applied body is trimEnd()'d before it reaches gh.
+      normalize: (s) => s.trimEnd(),
     });
     if (!decision.proceed) {
       return toToolResult(
@@ -98,7 +100,11 @@ export const prCommentTool: ToolDefinition<typeof Params, GitDetails> = {
           `git-me: \`gh pr comment\` failed (exit ${result.exitCode}). ${detail}`,
         );
       }
-      return toToolResult(`Posted comment on PR #${prNumber}:\n${body}`);
+      const edited = decision.edited ?? false;
+      return toToolResult(
+        `Posted comment on PR #${prNumber}.${postedContentBlock(body, edited)}`,
+        { postedContent: body, edited },
+      );
     } catch (err) {
       return toToolResult(errorText(err));
     }
