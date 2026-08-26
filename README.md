@@ -1,24 +1,27 @@
 # @estebanforge/pi-git-me
 
-Git + **GitHub** PR tools for the [pi coding agent](https://pi.dev) that act as **you**. Adds 10 LLM-callable tools that talk to local `git` (for the commit-message tool) and the authenticated `gh` CLI (for everything else). Five read tools (status, diff, log, branch, PR info) plus five write tools (commit message, PR description, PR conversation comment, PR review comment, issue comment). Every write opens in an editable preview dialog before anything reaches git or GitHub — model picks the wording, you stay in control.
+Git + **GitHub** PR tools for the [pi coding agent](https://pi.dev) that act as **you**. Adds 13 LLM-callable tools that talk to local `git` (for the commit-message tool) and the authenticated `gh` CLI (for everything else). Five read tools (status, diff, log, branch, PR info) plus eight write tools (commit message, PR description, PR conversation comment, PR review comment, issue comment, issue creation, discussion creation, discussion comment/reply). Every write opens in an editable preview dialog before anything reaches git or GitHub — model picks the wording, you stay in control.
 
-Use it when you want an agent to **inspect the working state** of a repo (diff, log, branch, current PR) **or post anything as you** into GitHub (commit message, PR title/body, PR conversation comment, PR review comment, issue comment). The agent drafts the prose; you read it, trim it, or cancel. Nothing commits, opens a PR, or posts anything until you say so.
+Use it when you want an agent to **inspect the working state** of a repo (diff, log, branch, current PR) **or post anything as you** into GitHub (commit message, PR title/body, PR conversation comment, PR review comment, issue comment, new issues, discussions and their comments). The agent drafts the prose; you read it, trim it, or cancel. Nothing commits, opens a PR or issue, starts a discussion, or posts anything until you say so.
 
 ## Canonical rule
 
-**Any text the agent intends to record or post as you into git or GitHub MUST go through one of the git-me write tools.** Never fabricate the text and run `git` or `gh` through the bash/shell tool yourself — the editable preview is the point and bypassing it is a policy violation. Drafting is the agent's job: it writes the message or body itself and hands it to the tool, where you review, edit, and accept (Enter) or cancel (Esc). The agent must not ask you in chat for the wording or for approval before calling the tool — the dialog is the asking and the approval. The five write tools are the only sanctioned path for:
+**Any text the agent intends to record or post as you into git or GitHub MUST go through one of the git-me write tools.** Never fabricate the text and run `git` or `gh` through the bash/shell tool yourself — the editable preview is the point and bypassing it is a policy violation. Drafting is the agent's job: it writes the message or body itself and hands it to the tool, where you review, edit, and accept (Enter) or cancel (Esc). The agent must not ask you in chat for the wording or for approval before calling the tool — the dialog is the asking and the approval. The write tools are the only sanctioned path for:
 
 - commit messages → `git_commit`
 - PR titles and bodies → `git_pr_upsert`
 - top-level PR conversation comments → `git_pr_comment`
 - PR review events (COMMENT / APPROVE / REQUEST_CHANGES) → `git_pr_review`
 - issue comments → `git_issue_comment`
+- new issues → `git_issue_create`
+- new discussions → `git_discussion_create`
+- discussion comments and threaded discussion replies → `git_discussion_comment`
 
 ## Why a local `git` + `gh` setup (and not a GitHub App)
 
 The extension drives the **same tools you use by hand**. `git` for the local repo (works for any branch, any host, any fork — only the commit-message tool needs `git`) and `gh` for GitHub-specific things (PR create / edit, PR comment, PR review, issue comment). No OAuth dance, no app registration, no secret rotation — `gh` already manages its own auth. The extension shells out to them and lets the user gate every write with an editable preview.
 
-The tradeoff: the extension depends on `gh` for the four PR/issue tools. If you do not have `gh` installed (or are not authenticated), those tools will surface a clear error instead of running blind. The commit-message tool only needs `git`.
+The tradeoff: the extension depends on `gh` for the GitHub-facing tools. If you do not have `gh` installed (or are not authenticated), those tools will surface a clear error instead of running blind. The commit-message tool only needs `git`.
 
 ## Scope: GitHub today, other providers out of scope
 
@@ -47,14 +50,17 @@ The git-me tools will not interfere with those; they only handle `git` and `gh` 
 | `git_pr_comment` | write | `gh` | Post a top-level PR conversation comment. Opens an editable preview; applies via `gh pr comment` (does not touch the PR review state — use `git_pr_review` for that). |
 | `git_pr_review` | write | `gh` | Post a PR review event. Opens an editable preview; applies via `gh pr review --comment` (or `--approve` / `--request-changes`). |
 | `git_issue_comment` | write | `gh` | Post a comment on a GitHub issue. Opens an editable preview; applies via `gh issue comment <number> --body`. |
+| `git_issue_create` | write | `gh` | Create a new GitHub issue (title + body, optional labels/assignees). Opens an editable preview; applies via `gh issue create`. |
+| `git_discussion_create` | write | `gh` (GraphQL) | Start a new GitHub Discussion in a named category. Opens an editable preview; applies via the `createDiscussion` mutation (`gh api graphql`). |
+| `git_discussion_comment` | write | `gh` (GraphQL) | Post a comment on a discussion, or a threaded reply under a comment (`replyTo`). Opens an editable preview; applies via the `addDiscussionComment` mutation. |
 
-The agent drafts the prose (commit message, PR title/body, PR comment, review body, issue comment); the user always sees it, can edit it, and can cancel.
+The agent drafts the prose (commit message, PR title/body, PR comment, review body, issue title/body and comment, discussion title/body and comments); the user always sees it, can edit it, and can cancel.
 
 ## Write tools & review
 
-The five write tools gate themselves. A user is present at the TUI:
+The eight write tools gate themselves. A user is present at the TUI:
 
-- **`git_commit`**, **`git_pr_upsert`**, **`git_pr_comment`**, **`git_pr_review`**, **`git_issue_comment`** open an **editable** dialog — trim or rewrite the agent's draft, then accept (Enter) or cancel (Esc).
+- **`git_commit`**, **`git_pr_upsert`**, **`git_pr_comment`**, **`git_pr_review`**, **`git_issue_comment`**, **`git_issue_create`**, **`git_discussion_create`**, **`git_discussion_comment`** open an **editable** dialog — trim or rewrite the agent's draft, then accept (Enter) or cancel (Esc).
 
 In **headless mode** (no interactive UI, e.g. an unsupervised or automated run), the write tools are **refused by default** — the extension will not commit, edit a PR, post a comment, or post a review on your behalf without a human present. Opt in with `/git headless on` (persisted as the `git-allow-headless-write` setting) if you genuinely want unsupervised writes (e.g. scheduled/automation use).
 
@@ -97,7 +103,7 @@ Update any prompt templates or slash-command prefills that named the old tools. 
 | Tool | Required for | How to install |
 | --- | --- | --- |
 | `git` | every tool | any modern Git (>= 2.30 recommended) |
-| `gh` | the five GitHub-touching tools (`git_pr_info`, `git_pr_upsert`, `git_pr_comment`, `git_pr_review`, `git_issue_comment`) | [cli.github.com](https://cli.github.com) — then `gh auth login` |
+| `gh` | the eight GitHub-touching tools (`git_pr_info`, `git_pr_upsert`, `git_pr_comment`, `git_pr_review`, `git_issue_comment`, `git_issue_create`, `git_discussion_create`, `git_discussion_comment`) | [cli.github.com](https://cli.github.com) — then `gh auth login` |
 
 The extension reads **no environment variables**. There is no token to copy; `gh` is the auth surface. If `gh` is missing, the read tools still work; the GitHub write tools surface a clear error.
 
@@ -116,6 +122,9 @@ The extension reads **no environment variables**. There is no token to copy; `gh
 | `/git pr-comment [num]` | Prefills with a prompt to draft + post a top-level PR conversation comment. |
 | `/git review` | Prefills with a prompt to draft + post a PR review event. |
 | `/git issue-comment <num>` | Prefills with a prompt to draft + post an issue comment. |
+| `/git issue-create <title>` | Prefills with a prompt to draft + open a new issue. |
+| `/git discussion-create <title>` | Prefills with a prompt to draft + start a new discussion (category required). |
+| `/git discussion-comment <num>` | Prefills with a prompt to draft + post a discussion comment or threaded reply. |
 | `/git config` | Settings modal (write review gate). |
 | `/git confirm on\|off` | Toggle the write review gate (one-shot). |
 | `/git headless on\|off` | Toggle unsupervised (no-UI) write opt-in. |
@@ -148,6 +157,15 @@ Post a review on PR #123 with: looks good, one nit on error handling.
 ```
 Comment on issue #42 with: reproduced on main; bisect points to #39.
 ```
+```
+Open an issue titled "Flaky test: login E2E" with a body from the last CI run.
+```
+```
+Start a discussion in Ideas titled "Weekly digest of merged PRs" — draft the first post.
+```
+```
+Reply under the top comment of discussion #12: this worked for me on 1.2.3.
+```
 
 ## Notes
 
@@ -157,7 +175,10 @@ Comment on issue #42 with: reproduced on main; bisect points to #39.
 - The tools read git state from the cwd at the moment the tool runs. If the working tree changes between a `git_diff` call and the `git_commit` apply, the agent will see the updated diff via the next read; the commit applies to whatever is staged at apply time.
 - `git_pr_upsert` decides create-vs-edit by calling `gh pr view` first. If your branch has a PR you did not create (rare), the title and body will overwrite the existing one in place.
 - `git_pr_comment` and `git_pr_review` resolve the PR number from the current branch first; pass `pr` explicitly to target a different number.
-- `git_issue_comment` requires an explicit issue number (issues have no equivalent of "current branch"). Use a read tool or `gh issue list` to discover issue numbers.
+- `git_issue_comment` requires an explicit issue number (issues have no equivalent of "current branch"). Use a read tool or `gh issue list` to discover issue numbers. Issue comments are flat (no threading) — the same tool is the reply path for issues.
+- `git_issue_create` needs `gh issue create` to succeed; a label the repo does not have fails the whole call (nothing is created). Verify label names read-only first if unsure.
+- Discussions have **no `gh` CLI command**. `git_discussion_create` and `git_discussion_comment` go through the GraphQL API via `gh api graphql` (the `createDiscussion` and `addDiscussionComment` mutations). A category **name** is required to create a discussion; a wrong name returns the repo's valid category names, so a first call is a safe way to discover them. Discussions must be enabled on the repo (Settings -> Features) or the category lookup reports it.
+- `git_discussion_comment` posts top-level by default; pass `replyTo` with a comment id (numeric REST id or GraphQL node id, discoverable read-only via `gh api repos/<owner>/<repo>/discussions/<n>/comments`) to thread the reply under that comment.
 - Other git providers (GitLab, Gitea / Forgejo, Bitbucket, etc.) are out of scope. Wire those up yourself via your preferred path (their CLI, direct API, MCP server, or a custom extension). See [Scope](#scope-github-today-other-providers-out-of-scope).
 
 ## License

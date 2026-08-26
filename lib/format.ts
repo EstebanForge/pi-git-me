@@ -17,8 +17,44 @@ export function formatCommitMessage(subject: string, body?: string): string {
   return `${s}\n\n${b}`;
 }
 
+/**
+ * Title+body in ONE editor buffer. Shared by every write tool that edits two
+ * fields in a single dialog (PR title+body, issue title+body, discussion
+ * title+body). The separator is a horizontal rule on its own blank-line
+ * island: visually distinct in the editor, unlikely in user-typed content.
+ * If a user pastes it verbatim we accept the ambiguity over adding extra
+ * round-trips.
+ */
+const TITLE_BODY_SEP = "\n\n---\n\n";
+
+/** Join a title and body into the single editor prefill buffer. */
+export function toTitleBodyPrefill(title: string, body: string): string {
+  return `${title.trim()}${TITLE_BODY_SEP}${body}`;
+}
+
+/**
+ * Split an editor buffer back into { title, body }. When the user deleted
+ * the separator, treat the whole buffer as the body and keep the
+ * agent-supplied fallbackTitle, so the write does NOT hard-fail after the
+ * user already accepted. (If they also blanked the original title param,
+ * the !title guard in the caller still catches it.)
+ */
+export function fromTitleBodyPrefill(
+  text: string,
+  fallbackTitle: string,
+): { title: string; body: string } {
+  const idx = text.indexOf(TITLE_BODY_SEP);
+  if (idx === -1) {
+    return { title: fallbackTitle.trim(), body: text.trim() };
+  }
+  return {
+    title: text.slice(0, idx).trim(),
+    body: text.slice(idx + TITLE_BODY_SEP.length).trim(),
+  };
+}
+
 /** Render the title + body block the agent and confirm() will show. */
-export function describePrPayload(title: string, body: string): string {
+export function describeTitleBodyPayload(title: string, body: string): string {
   return `title: ${oneLine(title)}\n\nbody:\n${oneLine(body)}`;
 }
 

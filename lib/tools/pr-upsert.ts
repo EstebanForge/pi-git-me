@@ -2,7 +2,7 @@ import { Type, type Static } from "typebox";
 import type { AgentToolResult, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { runGh, requireGitRepo, requireGh, GitMeEnvError } from "../auth";
 import { confirmWrite } from "../confirm";
-import { describePrPayload, repoContextLabel } from "../format";
+import { describeTitleBodyPayload, repoContextLabel, toTitleBodyPrefill, fromTitleBodyPrefill } from "../format";
 import { ghPrForCurrentBranch } from "../git";
 import { toToolResult, errorText, postedContentExtras, type GitDetails } from "../result";
 import {
@@ -20,9 +20,9 @@ import {
 // editable preview) and then applies via `gh pr create` (when no PR exists)
 // or `gh pr edit` (when one already exists).
 //
-// The PR title is prepended to the body in the editor prefill so the user
-// edits both in a single dialog. On apply we split them back apart for the
-// `gh pr edit` / `gh pr create` flags.
+// The title/body editor prefill (single buffer, "---" separator) and its
+// split-back parser live in ../format: three write tools now share them
+// (PR, issue, discussion creation).
 
 const Params = Type.Object({
   title: Type.String({ description: PR_UPSERT_TITLE_DESCRIPTION, minLength: 1 }),
@@ -32,32 +32,7 @@ const Params = Type.Object({
   cwd: Type.Optional(Type.String({ description: CWD_DESCRIPTION })),
 });
 
-// Internal separators the editor prefill uses to keep title/body in one
-// buffer. ASCII control chars are unlikely in user-typed content; if a user
-// pastes them verbatim we accept the ambiguity over adding extra round-trips.
-const TITLE_BODY_SEP = "\n\n---\n\n";
 
-function toPrefill(title: string, body: string): string {
-  return `${title.trim()}${TITLE_BODY_SEP}${body}`;
-}
-
-function fromPrefill(
-  text: string,
-  fallbackTitle: string,
-): { title: string; body: string } {
-  const idx = text.indexOf(TITLE_BODY_SEP);
-  if (idx === -1) {
-    // User removed the separator. Treat the whole buffer as the body and keep
-    // the agent-supplied title, so the write does NOT hard-fail after the
-    // user already accepted. (If they also blanked the original title param,
-    // the !title guard below still catches it.)
-    return { title: fallbackTitle.trim(), body: text.trim() };
-  }
-  return {
-    title: text.slice(0, idx).trim(),
-    body: text.slice(idx + TITLE_BODY_SEP.length).trim(),
-  };
-}
 
 export const prUpsertTool: ToolDefinition<typeof Params, GitDetails> = {
   name: "git_pr_upsert",
@@ -88,8 +63,8 @@ export const prUpsertTool: ToolDefinition<typeof Params, GitDetails> = {
     const existing = ghPrForCurrentBranch(cwd);
     const base = params.base ?? "main";
 
-    const prefill = toPrefill(params.title, params.body);
-    const summary = describePrPayload(params.title, params.body);
+    const prefill = toTitleBodyPrefill(params.title, params.body);
+    const summary = describeTitleBodyPayload(params.title, params.body);
 
     const decision = await confirmWrite(ctx, {
       title:
@@ -102,7 +77,7 @@ export const prUpsertTool: ToolDefinition<typeof Params, GitDetails> = {
       // split+trim here so a whitespace-only edit inside either field does not
       // register as edited when the transmitted title/body are unchanged.
       normalize: (s) => {
-        const r = fromPrefill(s, params.title);
+        const r = fromTitleBodyPrefill(s, params.title);
         return `${r.title}\n${r.body}`;
       },
     });
@@ -114,7 +89,7 @@ export const prUpsertTool: ToolDefinition<typeof Params, GitDetails> = {
       );
     }
 
-    const { title, body } = fromPrefill(decision.text ?? prefill, params.title);
+    const { title, body } = fromTitleBodyPrefill(decision.text ?? prefill, params.title);
     if (!title || !body) {
       return toToolResult(
         "git-me: PR title and body are both required. Edit left one empty; nothing was applied.",

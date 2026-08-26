@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
-  describePrPayload,
+  describeTitleBodyPayload,
   describeReviewPayload,
   formatCommitMessage,
   oneLine,
@@ -46,9 +46,9 @@ describe("formatCommitMessage", () => {
   });
 });
 
-describe("describePrPayload", () => {
+describe("describeTitleBodyPayload", () => {
   it("renders title + body summary", () => {
-    const out = describePrPayload("feat: add login", "Adds the login endpoint and tests.");
+    const out = describeTitleBodyPayload("feat: add login", "Adds the login endpoint and tests.");
     expect(out).toContain("title: feat: add login");
     expect(out).toContain("Adds the login endpoint and tests.");
   });

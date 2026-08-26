@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **`git_issue_create`** — create a new GitHub issue via `gh issue create` with title + body (both edited in one review dialog, same as `git_pr_upsert`) and optional labels / assignees (repeated flags; `@me` works). Echoes the new issue URL. Closes the policy gap where "post as the user" content could only reach an issue someone else had created.
+- **`git_discussion_create`** — start a new GitHub Discussion. There is no `gh discussion` CLI command, so this goes through the GraphQL API via `gh api graphql` (`createDiscussion` mutation). The category is required by NAME and resolved case-insensitively against the repo's category list before the review dialog; a wrong name returns the valid names (and an empty list reports that Discussions are probably disabled), so no dialog opens for a doomed write.
+- **`git_discussion_comment`** — post a comment on a GitHub Discussion, or a threaded reply under a specific comment when `replyTo` carries that comment's id (numeric REST id — resolved to its node id — or a GraphQL node id, both discoverable read-only). Runs the `addDiscussionComment` mutation; omits `replyToId` entirely for top-level comments (an empty-string ID is not null to GraphQL). Issue comments stay flat: replying to an ISSUE remains `git_issue_comment`.
+- `lib/github.ts` — shared GitHub plumbing beyond plain gh subcommands: `ghRepoView` (repo node id + owner/name via `gh repo view --json`), `ghGraphql` (typed-variable GraphQL over `gh api graphql`, failing on non-zero exit AND on 200-with-errors bodies), the discussion queries/mutations, and the numeric-comment-id → node-id resolver. Variables ride `-F key=value` flags on an args-array spawn, so no shell or GraphQL injection surface.
+- Title+body editor prefill (single buffer, `---` separator, separator-deleted fallback) extracted from `git_pr_upsert` into shared `toTitleBodyPrefill` / `fromTitleBodyPrefill` helpers in `lib/format.ts` (`describePrPayload` renamed `describeTitleBodyPayload`); `git_issue_create` and `git_discussion_create` reuse it.
+- `/git issue-create <title>`, `/git discussion-create <title>`, `/git discussion-comment <num>` slash-command verbs; `/git` status line and usage updated. The binding TOOL_GUIDANCE policy now covers issue creation and discussions: forbidden-via-shell list extended with `gh issue create` and write-shaped `gh api` calls (GraphQL mutations, REST POST/PATCH/DELETE), surface→tool map extended, and the gate descriptions name all eight write tools.
+
+### Tests
+
+- 72 -> 112. New coverage: issue create (cancel / headless / blanked-buffer / argv incl. repeated `--label` / `--assignee` flags / edited-draft details), discussion create (category resolution case-insensitive, unknown-category lists valid names before the gate, zero-categories hint, repo-view failure, graphql non-zero exit), discussion comment (top-level omits `replyToId`, numeric `replyTo` REST resolution, node-id passthrough, unresolvable `replyTo` fails pre-gate, unknown discussion number), and cwd threading for the new tools.
+
 ## 1.1.3 — 2026-08-11
 
 ### Changed

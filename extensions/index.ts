@@ -1,18 +1,19 @@
 /**
- * pi-git-me - git + GitHub PR tools for pi that act as YOU.
+ * pi-git-me - git + GitHub tools for pi that act as YOU.
  *
- * Adds 10 LLM-callable tools that talk to local `git` and the authenticated
+ * Adds 13 LLM-callable tools that talk to local `git` and the authenticated
  * `gh` CLI. Five read tools (status, diff, log, current-branch, pr-info)
- * plus five write tools (commit, pr-upsert, pr-comment, review-comment,
- * issue-comment). The write tools run the same two-stage human-in-the-loop
- * gate as
+ * plus eight write tools (commit, pr-upsert, pr-comment, pr-review,
+ * issue-comment, issue-create, discussion-create, discussion-comment). The
+ * write tools run the same two-stage human-in-the-loop gate as
  * pi-slack-me and pi-asana: a HEADLESS guard (no UI -> refused unless the
  * explicit headless opt-in is set) and a REVIEW gate (an editable preview
- * dialog before anything reaches git or the PR).
+ * dialog before anything reaches git or GitHub).
  *
- * The agent drafts the prose (commit message, PR title/body, review
- * comment); the user always sees it, can edit it, and can cancel. Nothing
- * commits, opens a PR, or posts a review until the user accepts.
+ * The agent drafts the prose (commit message, PR title/body, issue
+ * title/body, comment text); the user always sees it, can edit it, and can
+ * cancel. Nothing commits, opens a PR or issue, starts a discussion, or
+ * posts any comment until the user accepts.
  *
  * Based on: pi-slack-me / pi-asana confirm gate and house style.
  */
@@ -31,6 +32,9 @@ import { commitTool } from "../lib/tools/commit";
 import { prUpsertTool } from "../lib/tools/pr-upsert";
 import { prCommentTool } from "../lib/tools/pr-comment";
 import { issueCommentTool } from "../lib/tools/issue-comment";
+import { issueCreateTool } from "../lib/tools/issue-create";
+import { discussionCreateTool } from "../lib/tools/discussion-create";
+import { discussionCommentTool } from "../lib/tools/discussion-comment";
 import { prReviewTool } from "../lib/tools/pr-review";
 import { hasGh, isGitRepo } from "../lib/auth";
 import {
@@ -54,19 +58,22 @@ import {
 const TOOL_GUIDANCE = [
   "## git-me: git + GitHub write policy (binding)",
   "",
-  "- CANONICAL RULE: any text the agent intends to record or post AS THE USER into git or GitHub — commit messages, PR titles/bodies, PR conversation comments, PR review bodies, issue comments — MUST go through one of the git-me write tools (they drive `git` and the `gh` CLI). Bypassing the editable preview is a policy violation.",
+  "- CANONICAL RULE: any text the agent intends to record or post AS THE USER into git or GitHub — commit messages, PR titles/bodies, PR conversation comments, PR review bodies, issue comments, new issues, discussions and discussion comments — MUST go through one of the git-me write tools (they drive `git` and the `gh` CLI). Bypassing the editable preview is a policy violation.",
   "- The editable preview dialog IS the asking and IS the approval: the user reads your draft there, edits it, and presses Enter to accept or Esc to cancel. Therefore DRAFTING IS YOUR JOB. Do NOT ask the user in chat what the wording should be, do NOT paste a draft into chat asking 'shall I post this?', and do NOT ask for approval before calling the tool. Asking in chat duplicates the dialog.",
-  "- Do NOT run `git` or `gh` through the bash/shell/terminal tool to post anything as the user. Forbidden via shell: `git commit`, `git commit --amend`, `gh pr create`, `gh pr edit`, `gh pr comment`, `gh pr review`, `gh issue comment`. Read-only shell inspection (`git show`, `gh pr view`, etc.) is permitted when no git-me read tool fits, but the git-me read tools are preferred.",
+  "- Do NOT run `git` or `gh` through the bash/shell/terminal tool to post anything as the user. Forbidden via shell: `git commit`, `git commit --amend`, `gh pr create`, `gh pr edit`, `gh pr comment`, `gh pr review`, `gh issue comment`, `gh issue create`, and write-shaped `gh api` calls (GraphQL mutations, or REST POST/PATCH/DELETE — e.g. anything that creates a discussion or posts a discussion comment). Read-only shell inspection (`git show`, `gh pr view`, `gh api` GET queries, `gh issue list`) is permitted when no git-me read tool fits, but the git-me read tools are preferred.",
   "- If a write tool returns 'cancelled by user', the user pressed Esc. Do NOT retry through the shell and do NOT ask the user to paste the wording in chat. Ask the user whether to revise the draft or cancel the task; if they want to revise, call the same tool again with a revised draft.",
-  "- Surface -> tool map: commit -> git_commit (`git commit -F -`); PR title + body, create or edit -> git_pr_upsert (`gh pr create` / `gh pr edit`); top-level PR conversation comment -> git_pr_comment (`gh pr comment`); PR review event (COMMENT / APPROVE / REQUEST_CHANGES) -> git_pr_review (`gh pr review`); issue comment -> git_issue_comment (`gh issue comment`).",
+  "- Surface -> tool map: commit -> git_commit (`git commit -F -`); PR title + body, create or edit -> git_pr_upsert (`gh pr create` / `gh pr edit`); top-level PR conversation comment -> git_pr_comment (`gh pr comment`); PR review event (COMMENT / APPROVE / REQUEST_CHANGES) -> git_pr_review (`gh pr review`); issue comment -> git_issue_comment (`gh issue comment`); new issue -> git_issue_create (`gh issue create`); new discussion -> git_discussion_create (createDiscussion GraphQL mutation); discussion comment or threaded discussion reply -> git_discussion_comment (addDiscussionComment mutation).",
   "- Reach for git_status / git_diff / git_log / git_current_branch / git_pr_info BEFORE drafting any of the above, so the draft is grounded in the actual diff and PR state instead of invented.",
   "- git_commit applies via `git commit -F -` and requires staged changes (use git_diff target=staged to inspect).",
   "- git_pr_upsert creates a new PR via `gh pr create` when the branch has no PR, or edits the existing one via `gh pr edit` when it does; title and body are edited in one dialog.",
   "- git_pr_comment posts a plain PR conversation comment via `gh pr comment` without touching the PR review state (use git_pr_review for stateful review events).",
   "- git_pr_review posts via `gh pr review --comment` (or --approve / --request-changes). APPROVE / REQUEST_CHANGES change the PR review state and are always confirmed interactively even when the review gate is off. It posts a review SUMMARY body only — it cannot post inline line-level diff comments.",
-  "- git_issue_comment posts via `gh issue comment <number> --body`; the issue number is required.",
+  "- git_issue_comment posts via `gh issue comment <number> --body`; the issue number is required. Issue comments are flat — this same tool is the reply path for issues.",
+  "- git_issue_create opens a new issue via `gh issue create` with title + body (and optional labels / assignees, `@me` allowed); title and body are edited in one dialog.",
+  "- git_discussion_create starts a discussion via the createDiscussion GraphQL mutation (`gh api graphql`). There is NO `gh discussion` CLI command. The category NAME is required; a wrong name returns the repo's valid category names, so a first call is a safe way to discover them.",
+  "- git_discussion_comment posts a comment on a discussion via the addDiscussionComment mutation, or a threaded REPLY under a specific comment when replyTo carries that comment's id (numeric REST id or GraphQL node id, discoverable read-only via `gh api repos/<owner>/<repo>/discussions/<n>/comments`). Discussions only — for issues use git_issue_comment.",
   "- Scope: this extension drives `git` (local, host-agnostic) and `gh` (GitHub only). Other providers — GitLab (glab), Gitea / Forgejo (tea), Bitbucket, direct REST, MCP servers — are NOT covered; the user wires those up themselves if needed.",
-  "- In HEADLESS mode (no interactive UI), the write tools are REFUSED by default — an unsupervised run cannot commit, edit a PR, or post comments/reviews on the user's behalf. The git-allow-headless-write flag opts in to headless writes.",
+  "- In HEADLESS mode (no interactive UI), the write tools are REFUSED by default — an unsupervised run cannot commit, open a PR or issue, start a discussion, or post comments/reviews on the user's behalf. The git-allow-headless-write flag opts in to headless writes.",
 ].join("\n");
 
 function gitMe(pi: ExtensionAPI): void {
@@ -91,6 +98,9 @@ function gitMe(pi: ExtensionAPI): void {
   pi.registerTool(prCommentTool);
   pi.registerTool(prReviewTool);
   pi.registerTool(issueCommentTool);
+  pi.registerTool(issueCreateTool);
+  pi.registerTool(discussionCreateTool);
+  pi.registerTool(discussionCommentTool);
 
   pi.on("before_agent_start", async (event) => {
     return {
@@ -116,12 +126,15 @@ function gitMe(pi: ExtensionAPI): void {
   //   /git pr-comment [num]      -> git_pr_comment (top-level PR conversation comment)
   //   /git review                -> git_pr_review (PR review event)
   //   /git issue-comment <num>   -> git_issue_comment (issue comment)
+  //   /git issue-create <title>  -> git_issue_create (new issue)
+  //   /git discussion-create <title> -> git_discussion_create (new discussion)
+  //   /git discussion-comment <num> -> git_discussion_comment (discussion comment/reply)
   //   /git config                -> settings modal (write review gate)
   //   /git confirm on|off        -> toggle write review gate
   //   /git headless on|off       -> toggle headless (no-UI) write opt-in
   pi.registerCommand("git", {
     description:
-      'Git + GitHub (via gh) tools (act as you). Usage: /git status | /git diff [target] | /git log [N] | /git branch | /git pr | /git commit <subject> | /git pr-create <title> | /git pr-comment [num] | /git review | /git issue-comment <num> | /git config | /git confirm on|off | /git headless on|off.',
+      'Git + GitHub (via gh) tools (act as you). Usage: /git status | /git diff [target] | /git log [N] | /git branch | /git pr | /git commit <subject> | /git pr-create <title> | /git pr-comment [num] | /git review | /git issue-comment <num> | /git issue-create <title> | /git discussion-create <title> | /git discussion-comment <num> | /git config | /git confirm on|off | /git headless on|off.',
     handler: async (args, ctx) => {
       const trimmed = args.trim();
       if (!trimmed) {
@@ -129,7 +142,7 @@ function gitMe(pi: ExtensionAPI): void {
         const confirm = getConfirmWriteEnabled() ? "on" : "off";
         const headless = getAllowHeadlessWriteEnabled() ? "on" : "off";
         ctx.ui.notify(
-          `git-me: ready. Repo: yes. ${gh}. Write review: ${confirm} (toggle: /git confirm on|off). Headless writes: ${headless} (toggle: /git headless on|off). Verbs: status, diff, log, branch, pr, commit, pr-create, pr-comment, review, issue-comment, config.`,
+          `git-me: ready. Repo: yes. ${gh}. Write review: ${confirm} (toggle: /git confirm on|off). Headless writes: ${headless} (toggle: /git headless on|off). Verbs: status, diff, log, branch, pr, commit, pr-create, pr-comment, review, issue-comment, issue-create, discussion-create, discussion-comment, config.`,
           "info",
         );
         return;
@@ -146,6 +159,7 @@ function gitMe(pi: ExtensionAPI): void {
       const REPO_VERBS = new Set([
         "status", "diff", "log", "branch", "pr",
         "commit", "pr-create", "pr-comment", "review", "issue-comment",
+        "issue-create", "discussion-create", "discussion-comment",
       ]);
       if (REPO_VERBS.has(verb) && !isGitRepo(ctx.cwd)) {
         ctx.ui.notify(
@@ -234,6 +248,39 @@ function gitMe(pi: ExtensionAPI): void {
           prompt = `Draft a comment for issue #${rest}, then call the git_issue_comment tool with number=${rest} and body=<your body>. The user will review the body in an editable dialog before it is posted. This is the canonical path for any GitHub issue comment; do NOT fabricate and run \`gh issue comment\` yourself.`;
           break;
         }
+        case "issue-create": {
+          if (!rest) {
+            ctx.ui.notify(
+              "Usage: /git issue-create <suggested title>\nExample: /git issue-create feat(api): add login endpoint",
+              "warning",
+            );
+            return;
+          }
+          prompt = `Draft a GitHub issue title and body for this task (ground them in real repo state with git_log / git_diff where it describes code), then call the git_issue_create tool with title=<your title> and body=<your body> (plus labels/assignees only if the user asked for them). The user will review title + body in an editable dialog before the issue is created. This is the canonical path for opening an issue; do NOT fabricate and run \`gh issue create\` yourself.`;
+          break;
+        }
+        case "discussion-create": {
+          if (!rest) {
+            ctx.ui.notify(
+              "Usage: /git discussion-create <suggested title>\nExample: /git discussion-create Roadmap feedback for Q4",
+              "warning",
+            );
+            return;
+          }
+          prompt = `Draft a GitHub Discussion title and body for this task, then call the git_discussion_create tool with title=<your title>, body=<your body>, and category=<category name>. If you do not know the repo's discussion categories, call the tool with your best-guess category: a wrong name returns the valid names in the error. The user will review title + body in an editable dialog before the discussion is created. There is no \`gh discussion\` CLI command; this tool is the only path.`;
+          break;
+        }
+        case "discussion-comment": {
+          if (!rest || !/^\d+$/.test(rest)) {
+            ctx.ui.notify(
+              "Usage: /git discussion-comment <discussion number>\nExample: /git discussion-comment 42",
+              "warning",
+            );
+            return;
+          }
+          prompt = `Draft a comment for discussion #${rest} (or a threaded reply by adding replyTo=<comment id>), then call the git_discussion_comment tool with number=${rest} and body=<your body>. The user will review the body in an editable dialog before it is posted. This is the canonical path for discussion replies; do NOT run \`gh api graphql\` mutations yourself.`;
+          break;
+        }
         case "config": {
           await openConfigModal(ctx);
           return;
@@ -268,7 +315,7 @@ function gitMe(pi: ExtensionAPI): void {
         }
         default:
           ctx.ui.notify(
-            `Unknown /git verb "${verb}". Verbs: status, diff, log, branch, pr, commit, pr-create, pr-comment, review, issue-comment, config, confirm, headless.`,
+            `Unknown /git verb "${verb}". Verbs: status, diff, log, branch, pr, commit, pr-create, pr-comment, review, issue-comment, issue-create, discussion-create, discussion-comment, config, confirm, headless.`,
             "warning",
           );
           return;

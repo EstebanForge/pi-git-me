@@ -178,3 +178,65 @@ export const ISSUE_COMMENT_BODY_DESCRIPTION =
 
 export const ISSUE_COMMENT_NUMBER_DESCRIPTION =
   "Issue number to comment on (required). If you do not know one, you MAY run `gh issue list` through the bash/shell tool for READ-ONLY discovery only. Never use the shell to POST the comment — that must go through this tool.";
+
+// -------------------------------------------------- git issue create ------
+
+export const ISSUE_CREATE_TITLE = "git: Create Issue (GitHub via gh)";
+
+export const ISSUE_CREATE_DESCRIPTION = `**CREATES a new GitHub issue — this tool runs \`gh issue create\`, it is not a text generator.** USE THIS whenever an issue must be opened on GitHub (a bug report, a feature request, a tracking issue), including when the user says "file an issue", "open an issue", or hands you findings to post as an issue. The agent drafts the title and body; the extension shows them in an editable preview dialog (both in one buffer) and applies via \`gh issue create\` only after the user accepts. Optional labels and assignees are passed through (a label the repo does not have fails the call; \`@me\` self-assigns).
+
+Scope: GitHub only — this tool drives the \`gh\` CLI. Other git providers are not covered by this extension.
+
+DRAFTING IS YOUR JOB, NOT THE USER'S. Draft the title and body yourself (ground them in real repo state with git_log / git_diff / git_pr_info when the issue describes code) and call this tool; the editable dialog is where the user reviews, edits, and approves. Do NOT ask the user in chat what the issue should say, and do NOT ask for approval before calling. Do NOT run \`gh issue create\` through the bash/shell tool yourself; this tool is the only sanctioned path this extension provides and bypassing its preview is a policy violation.`;
+
+export const ISSUE_CREATE_TITLE_DESCRIPTION =
+  "Issue title. Rendered as the issue list link text. The user can edit this in the review dialog (title and body share one buffer separated by a --- rule).";
+
+export const ISSUE_CREATE_BODY_DESCRIPTION =
+  "Issue body in Markdown. Rendered as the issue description. The user can edit this in the review dialog.";
+
+export const ISSUE_CREATE_LABELS_DESCRIPTION =
+  "Optional label names to add. Each label must already exist in the repo (gh fails on unknown names). Empty or omitted when unsure.";
+
+export const ISSUE_CREATE_ASSIGNEES_DESCRIPTION =
+  "Optional logins to assign. Use \"@me\" to assign the authenticated user. Logins must be collaborators; empty or omitted when unsure.";
+
+// -------------------------------------------------- git discussion create -
+
+export const DISCUSSION_CREATE_TITLE = "git: Create Discussion (GitHub via GraphQL)";
+
+export const DISCUSSION_CREATE_DESCRIPTION = `**STARTS a new GitHub Discussion — this tool runs the createDiscussion GraphQL mutation via \`gh api graphql\`, it is not a text generator.** USE THIS whenever a discussion must be opened on GitHub (a question, an idea, an announcement), including when the user says "start a discussion", "open a discussion", or "post this to Discussions". There is NO \`gh discussion\` CLI command — do NOT try to shell one out. The agent drafts the title and body, picks the category NAME, and the extension shows title + body in an editable preview dialog, applying the mutation only after the user accepts. A wrong category name returns the repo's valid category names.
+
+Scope: GitHub only — this tool drives the \`gh\` CLI. Other git providers are not covered by this extension.
+
+DRAFTING IS YOUR JOB, NOT THE USER'S. Draft the title and body yourself and call this tool; the editable dialog is where the user reviews, edits, and approves. Do NOT ask the user in chat what the discussion should say, and do NOT ask for approval before calling. Do NOT run \`gh api graphql\` mutations through the bash/shell tool yourself; this tool is the only sanctioned path this extension provides and bypassing its preview is a policy violation.`;
+
+export const DISCUSSION_CREATE_TITLE_DESCRIPTION =
+  "Discussion title. Rendered as the discussion list link text. The user can edit this in the review dialog (title and body share one buffer separated by a --- rule).";
+
+export const DISCUSSION_CREATE_BODY_DESCRIPTION =
+  "Discussion body in Markdown (the first post of the discussion). The user can edit this in the review dialog.";
+
+export const DISCUSSION_CREATE_CATEGORY_DESCRIPTION =
+  "Category NAME (case-insensitive), e.g. \"Q&A\" or \"Ideas\". Required: GitHub refuses a discussion without one. If you do not know the repo's categories, you MAY list them read-only via the bash/shell tool (gh api graphql query for repository.discussionCategories) or just call this tool — a wrong name returns the valid names in the error.";
+
+// -------------------------------------------------- git discussion comment
+
+export const DISCUSSION_COMMENT_TITLE = "git: Discussion Comment (GitHub via GraphQL)";
+
+export const DISCUSSION_COMMENT_DESCRIPTION = `**POSTS a comment on a GitHub Discussion, or a threaded REPLY to one of its comments** (same addDiscussionComment GraphQL mutation via \`gh api graphql\`; replyTo decides which). USE THIS for any discussion reply, answer, or follow-up. There is NO \`gh discussion\` CLI command — do NOT try to shell one out. The agent supplies the discussion number and drafts the body; the extension shows it in an editable preview dialog, applying the mutation only after the user accepts.
+
+Distinct from \`git_issue_comment\`: issue comments are flat and that tool posts them via \`gh issue comment\`; THIS tool is discussions-only. For a threaded reply under a specific comment, pass replyTo with that comment's id (numeric REST id from \`gh api repos/<owner>/<repo>/discussions/<n>/comments\`, or its GraphQL node id) — you MAY run that read-only listing through the bash/shell tool to discover ids.
+
+Scope: GitHub only — this tool drives the \`gh\` CLI. Other git providers are not covered by this extension.
+
+DRAFTING IS YOUR JOB, NOT THE USER'S. Draft the comment yourself and call this tool; the editable dialog is where the user reviews, edits, and approves. Do NOT ask the user in chat what to say, and do NOT ask for approval before calling. Do NOT run \`gh api graphql\` mutations through the bash/shell tool yourself; this tool is the only sanctioned path this extension provides and bypassing its preview is a policy violation.`;
+
+export const DISCUSSION_COMMENT_BODY_DESCRIPTION =
+  "Comment body in Markdown. Posted as a top-level comment on the discussion, or as a threaded reply when replyTo is set. The user can edit this in the review dialog.";
+
+export const DISCUSSION_COMMENT_NUMBER_DESCRIPTION =
+  "Discussion number (from the discussions tab URL, github.com/<owner>/<repo>/discussions/<number>). Required.";
+
+export const DISCUSSION_COMMENT_REPLY_TO_DESCRIPTION =
+  "Optional: the comment to reply under, making this a threaded reply instead of a top-level comment. Accepts the comment's numeric REST id (from \`gh api repos/<owner>/<repo>/discussions/<n>/comments\`) or its GraphQL node id. Omit to post at the top level.";
