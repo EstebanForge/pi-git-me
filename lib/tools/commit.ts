@@ -22,7 +22,9 @@ import {
 //
 // Pre-flight: at least one staged change is required, otherwise git commit
 // fails with "nothing to commit". We surface a readable message instead of
-// letting the agent chase the error.
+// letting the agent chase the error. Exception: a merge in progress
+// (MERGE_HEAD) commits with an empty index; the commit itself records the
+// merge, even at zero content delta (ancestry-marker merges).
 
 const Params = Type.Object({
   subject: Type.String({ description: COMMIT_SUBJECT_DESCRIPTION, minLength: 1 }),
@@ -57,13 +59,25 @@ export const commitTool: ToolDefinition<typeof Params, GitDetails> = {
     // nothing is staged. Check first so we do not open the editor, let the
     // user edit a message, and only then report there is nothing to commit.
     // --amend rewrites the last commit's message even with no staged changes,
-    // so the check is skipped when amending.
+    // so the check is skipped when amending. An in-progress merge
+    // (MERGE_HEAD) is the other exception: git commits it with an empty
+    // index, even at zero content delta (pure ancestry marker). The probe
+    // runs only when the index is clean, so the normal path costs no extra
+    // subprocess.
+    let committingMerge = false;
     if (!params.amend) {
       const staged = runGit(["diff", "--cached", "--quiet"], cwd);
       if (staged.exitCode === 0) {
-        return toToolResult(
-          "git-me: nothing staged to commit. Stage your changes first (e.g. `git add`) and try again. Use git_diff target=staged to inspect.",
+        const merging = runGit(
+          ["rev-parse", "-q", "--verify", "MERGE_HEAD"],
+          cwd,
         );
+        if (merging.exitCode !== 0) {
+          return toToolResult(
+            "git-me: nothing staged to commit. Stage your changes first (e.g. `git add`) and try again. Use git_diff target=staged to inspect.",
+          );
+        }
+        committingMerge = true;
       }
     }
 
@@ -71,9 +85,11 @@ export const commitTool: ToolDefinition<typeof Params, GitDetails> = {
     const summary = `commit message:\n${oneLine(prefill)}`;
 
     const decision = await confirmWrite(ctx, {
-      title: params.amend
-        ? `Amend last commit with this message?${repoContextLabel(cwd, ctx.cwd)}`
-        : `Commit staged changes with this message?${repoContextLabel(cwd, ctx.cwd)}`,
+      title: committingMerge
+        ? `Commit in-progress merge with this message?${repoContextLabel(cwd, ctx.cwd)}`
+        : params.amend
+          ? `Amend last commit with this message?${repoContextLabel(cwd, ctx.cwd)}`
+          : `Commit staged changes with this message?${repoContextLabel(cwd, ctx.cwd)}`,
       editableText: prefill,
       summary,
       // The applied message is trimEnd()'d before it reaches git, so diff the
@@ -105,7 +121,11 @@ export const commitTool: ToolDefinition<typeof Params, GitDetails> = {
             `git-me: \`git commit\` exited ${result.exitCode} with no stderr.`,
         );
       }
-      const verb = params.amend ? "Amended last commit with" : "Committed staged changes with";
+      const verb = committingMerge
+        ? "Committed merge with"
+        : params.amend
+          ? "Amended last commit with"
+          : "Committed staged changes with";
       // message ends with a single trailing newline (git requires it); strip
       // it so the echo (when there is one) does not add a blank last line.
       const finalMessage = message.trimEnd();

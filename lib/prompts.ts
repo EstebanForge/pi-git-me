@@ -85,7 +85,7 @@ export const COMMIT_TITLE = "git: Commit";
 
 export const COMMIT_DESCRIPTION = `**COMMITS the staged changes — this tool runs \`git commit\`, it is not a text generator.** USE THIS for every commit, on any git host. The agent drafts the subject and (optional) body; the extension shows the full message in an editable preview dialog and applies it via \`git commit -F -\` only after the user accepts. The --amend flag rewrites the most recent commit instead of creating a new one.
 
-This tool commits ONLY what is staged in the index. There is no staging tool in this extension, so stage your target files first with \`git add <files>\` via the shell (staging is NOT a bound write — only the commit itself must go through this tool). Use git_diff target="staged" to confirm what will be committed; if nothing is staged, this tool returns an error and does NOT commit, so do NOT work around it with \`git commit -a\` via the shell.
+This tool commits ONLY what is staged in the index. There is no staging tool in this extension, so stage your target files first with \`git add <files>\` via the shell (staging is NOT a bound write — only the commit itself must go through this tool). Use git_diff target="staged" to confirm what will be committed; with nothing staged the tool refuses, with one exception: a merge in progress (\`MERGE_HEAD\` exists) commits even at zero content delta (pure ancestry-marker merge; the commit is what records the merge). Never work around a refusal with \`git commit\` or \`git commit -a\` via the shell.
 
 Scope: this tool drives plain \`git\` (no provider lock-in — any git host works). The other write tools in this extension drive \`gh\` and therefore cover GitHub only.
 

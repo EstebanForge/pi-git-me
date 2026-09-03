@@ -45,7 +45,7 @@ The git-me tools will not interfere with those; they only handle `git` and `gh` 
 | `git_log` | read | `git` | Most recent commits (hash, ISO date, author, subject, body). |
 | `git_current_branch` | read | `git` | Current branch name (or detached-HEAD SHA). |
 | `git_pr_info` | read | `gh` | PR for the current branch (number, title, body, URL, draft flag, review decision) — `null` when none. |
-| `git_commit` | write | `git` | Commit staged changes with the agent's suggested subject + body. Opens an editable preview; applies via `git commit -F -`. |
+| `git_commit` | write | `git` | Commit staged changes, or finish an in-progress merge (works with an empty index). Agent's suggested subject + body. Opens an editable preview; applies via `git commit -F -`. |
 | `git_pr_upsert` | write | `gh` | Create or edit the PR title + body for the current branch. Opens an editable preview; creates via `gh pr create` when no PR exists, or edits via `gh pr edit` when one does. |
 | `git_pr_comment` | write | `gh` | Post a top-level PR conversation comment. Opens an editable preview; applies via `gh pr comment` (does not touch the PR review state — use `git_pr_review` for that). |
 | `git_pr_review` | write | `gh` | Post a PR review event. Opens an editable preview; applies via `gh pr review --comment` (or `--approve` / `--request-changes`). |

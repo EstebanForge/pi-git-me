@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.2.1 — 2026-09-03
+
+### Fixed
+
+- **`git_commit` no longer refuses a commit when a merge is in progress and nothing is staged.** The staged-changes pre-flight treated an empty index as "nothing to do", but mid-merge (`MERGE_HEAD` exists) git accepts exactly that: the commit itself records the merge, even with a zero content delta. Example: `git merge --no-commit` of an already-contained branch leaves a pure ancestry-marker merge that only `git commit` can finish. The old guard made that impossible through the sanctioned editable gate and pushed agents toward shell `git commit`, the exact bypass the policy forbids. The tool now probes `git rev-parse -q --verify MERGE_HEAD` only when the index is clean (no extra subprocess on the normal path); with a merge in progress it proceeds through the same gate (title reads "Commit in-progress merge with this message?", success echoes "Committed merge with"), and without one the usual "nothing staged" message stands. Deliberate `--allow-empty` non-merge commits stay out of scope.
+- Tool description, binding policy guidance, and README row state the merge exception, so the old "requires staged changes" rule no longer reads as a dead end mid-merge.
+
+### Tests
+
+- 112 -> 114. New: merge-in-progress with a clean index reaches the gate and the title names the merge; clean index without MERGE_HEAD still refuses before the gate. The default `git rev-parse` mock route is narrowed to `--is-inside-work-tree` so it cannot answer the MERGE_HEAD probe.
+
 ## 1.2.0 — 2026-08-11
 
 ### Added

@@ -83,7 +83,10 @@ type RecordedCall = { cmd: string; args: string[]; cwd?: string };
 // staged (so non-amend commits reach the gate), and the current branch has no
 // PR. Tests override or extend these per case.
 const DEFAULT_ROUTES: Route[] = [
-  { match: (c, a) => c === "git" && a[0] === "rev-parse", result: () => ({ stdout: "true", stderr: "", status: 0 }) },
+  { match: (c, a) => c === "git" && a[0] === "rev-parse" && a.includes("--is-inside-work-tree"), result: () => ({ stdout: "true", stderr: "", status: 0 }) },
+  // MERGE_HEAD probe (commit pre-flight): default answer is "no merge in
+  // progress"; tests that need a merge override this route.
+  { match: (c, a) => c === "git" && a[0] === "rev-parse" && a.includes("MERGE_HEAD"), result: () => ({ stdout: "", stderr: "", status: 1 }) },
   { match: (c, a) => c === "gh" && a[0] === "--version", result: () => ({ stdout: "gh version 2.40.0", stderr: "", status: 0 }) },
   { match: (c, a) => c === "gh" && a[0] === "auth" && a[1] === "status", result: () => ({ stdout: "", stderr: "", status: 0 }) },
   { match: (c, a) => c === "git" && a[0] === "diff" && a.includes("--cached") && a.includes("--quiet"), result: () => ({ stdout: "", stderr: "", status: 1 }) },
@@ -848,6 +851,50 @@ describe("git_commit - amend path skips the staged pre-flight", () => {
     );
     expect(firstText(result)).toContain("commit cancelled");
     expect(ui.prompts[0].title).toContain("Amend");
+  });
+});
+
+// -------------------------------------------------- merge path -------------
+
+describe("git_commit - in-progress merge skips the staged pre-flight", () => {
+  const MERGE_HEAD_ROUTE: Route = {
+    match: (c, a) => c === "git" && a[0] === "rev-parse" && a.includes("MERGE_HEAD"),
+    result: () => ({ stdout: "", stderr: "", status: 0 }),
+  };
+
+  it("merge in progress with nothing staged reaches the gate (no 'nothing staged')", async () => {
+    // `git merge --no-commit` of an already-contained branch: MERGE_HEAD
+    // exists, index is clean, and the commit records pure ancestry. git
+    // accepts this; the old staged-only guard rejected it and made such
+    // merges unreachable through the sanctioned gate.
+    setupRoutes([
+      MERGE_HEAD_ROUTE,
+      { match: (c, a) => c === "git" && a[0] === "diff" && a.includes("--cached") && a.includes("--quiet"), result: () => ({ stdout: "", stderr: "", status: 0 }) },
+    ]);
+    const ui = makeStubUI({ editorResponse: undefined });
+    const result = await invokeWithCtx(
+      commitTool,
+      { subject: "Merge branch 'feature' (ancestry marker)" },
+      makeCtx(ui),
+    );
+    expect(firstText(result)).toContain("commit cancelled");
+    expect(ui.prompts).toHaveLength(1);
+    expect(ui.prompts[0].title).toContain("merge");
+  });
+
+  it("no merge in progress + nothing staged still refuses BEFORE the gate", async () => {
+    // Default routes answer the MERGE_HEAD probe with status 1 (no merge).
+    setupRoutes([
+      { match: (c, a) => c === "git" && a[0] === "diff" && a.includes("--cached") && a.includes("--quiet"), result: () => ({ stdout: "", stderr: "", status: 0 }) },
+    ]);
+    const ui = makeStubUI({ editorResponse: "Merge branch 'x'" });
+    const result = await invokeWithCtx(
+      commitTool,
+      { subject: "Merge branch 'x'" },
+      makeCtx(ui),
+    );
+    expect(firstText(result)).toContain("nothing staged");
+    expect(ui.prompts).toHaveLength(0); // gate never opened
   });
 });
 
