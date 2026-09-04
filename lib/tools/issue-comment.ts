@@ -3,12 +3,20 @@ import type { AgentToolResult, ToolDefinition } from "@earendil-works/pi-coding-
 import { runGh, requireGitRepo, requireGh, GitMeEnvError } from "../auth";
 import { confirmWrite } from "../confirm";
 import { describeReviewPayload, repoContextLabel } from "../format";
+import { ghRepoView } from "../github";
+import {
+  validateAttachmentPaths,
+  uploadAttachmentsForComment,
+  appendAttachments,
+  type UploadedAttachment,
+} from "../attachment-upload";
 import { toToolResult, errorText, postedContentExtras, type GitDetails } from "../result";
 import {
   ISSUE_COMMENT_TITLE,
   ISSUE_COMMENT_DESCRIPTION,
   ISSUE_COMMENT_BODY_DESCRIPTION,
   ISSUE_COMMENT_NUMBER_DESCRIPTION,
+  COMMENT_IMAGES_DESCRIPTION,
   CWD_DESCRIPTION,
 } from "../prompts";
 
@@ -28,6 +36,9 @@ const Params = Type.Object({
     minimum: 1,
   }),
   body: Type.String({ description: ISSUE_COMMENT_BODY_DESCRIPTION, minLength: 1 }),
+  images: Type.Optional(
+    Type.Array(Type.String({ description: COMMENT_IMAGES_DESCRIPTION })),
+  ),
   cwd: Type.Optional(Type.String({ description: CWD_DESCRIPTION })),
 });
 
@@ -52,10 +63,25 @@ export const issueCommentTool: ToolDefinition<typeof Params, GitDetails> = {
       throw err;
     }
 
+    // Fail fast on bad attachment paths BEFORE the review dialog.
+    const imagePaths = params.images ?? [];
+    if (imagePaths.length > 0) {
+      const problems = await validateAttachmentPaths(imagePaths);
+      if (problems.length > 0) {
+        return toToolResult(
+          `git-me: refused to post comment (issue #${params.number}) - attachment problem(s):\n- ${problems.join("\n- ")}`,
+        );
+      }
+    }
+
     const decision = await confirmWrite(ctx, {
       title: `Post this comment on issue #${params.number}?${repoContextLabel(cwd, ctx.cwd)}`,
       editableText: params.body,
-      summary: describeReviewPayload(params.body),
+      summary:
+        describeReviewPayload(params.body) +
+        (imagePaths.length > 0
+          ? `\n\n[attach: ${imagePaths.map((p) => p.split("/").pop()).join(", ")}]`
+          : ""),
       normalize: (s) => s.trimEnd(),
     });
     if (!decision.proceed) {
@@ -66,11 +92,33 @@ export const issueCommentTool: ToolDefinition<typeof Params, GitDetails> = {
       );
     }
 
-    const body = (decision.text ?? params.body).trimEnd();
+    let body = (decision.text ?? params.body).trimEnd();
     if (!body) {
       return toToolResult(
         "git-me: issue comment body is empty after edit; nothing was posted.",
       );
+    }
+
+    // Same upload-after-gate / post-after-upload ordering as git_pr_comment:
+    // cancel leaves nothing behind, a failed upload leaves no comment.
+    let uploaded: UploadedAttachment[] = [];
+    if (imagePaths.length > 0) {
+      const repo = ghRepoView(cwd);
+      if (!repo) {
+        return toToolResult(
+          `git-me: cannot attach images - could not resolve a GitHub repository for "${cwd}" (\`gh repo view\` failed). Nothing was posted.`,
+        );
+      }
+      try {
+        uploaded = await uploadAttachmentsForComment({
+          paths: imagePaths,
+          nameWithOwner: repo.nameWithOwner,
+          cwd,
+        });
+      } catch (err) {
+        return toToolResult(errorText(err));
+      }
+      body = appendAttachments(body, uploaded);
     }
 
     try {
@@ -87,8 +135,9 @@ export const issueCommentTool: ToolDefinition<typeof Params, GitDetails> = {
           `git-me: \`gh issue comment\` failed (exit ${result.exitCode}). ${detail}`,
         );
       }
+      const attachPart = uploaded.length > 0 ? ` Attached ${uploaded.length} image(s).` : "";
       const { extraText, details } = postedContentExtras(body, decision.edited ?? false);
-      return toToolResult(`Posted comment on issue #${params.number}.${extraText}`, details);
+      return toToolResult(`Posted comment on issue #${params.number}.${attachPart}${extraText}`, details);
     } catch (err) {
       return toToolResult(errorText(err));
     }

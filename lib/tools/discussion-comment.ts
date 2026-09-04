@@ -14,11 +14,18 @@ import {
 } from "../github";
 import { toToolResult, errorText, postedContentExtras, type GitDetails } from "../result";
 import {
+  validateAttachmentPaths,
+  uploadAttachmentsForComment,
+  appendAttachments,
+  type UploadedAttachment,
+} from "../attachment-upload";
+import {
   DISCUSSION_COMMENT_TITLE,
   DISCUSSION_COMMENT_DESCRIPTION,
   DISCUSSION_COMMENT_BODY_DESCRIPTION,
   DISCUSSION_COMMENT_NUMBER_DESCRIPTION,
   DISCUSSION_COMMENT_REPLY_TO_DESCRIPTION,
+  COMMENT_IMAGES_DESCRIPTION,
   CWD_DESCRIPTION,
 } from "../prompts";
 
@@ -38,6 +45,9 @@ const Params = Type.Object({
     minimum: 1,
   }),
   body: Type.String({ description: DISCUSSION_COMMENT_BODY_DESCRIPTION, minLength: 1 }),
+  images: Type.Optional(
+    Type.Array(Type.String({ description: COMMENT_IMAGES_DESCRIPTION })),
+  ),
   replyTo: Type.Optional(Type.String({ description: DISCUSSION_COMMENT_REPLY_TO_DESCRIPTION, minLength: 1 })),
   cwd: Type.Optional(Type.String({ description: CWD_DESCRIPTION })),
 });
@@ -88,12 +98,22 @@ export const discussionCommentTool: ToolDefinition<typeof Params, GitDetails> = 
 
       // Optional threaded-reply target, resolved to the node id the mutation
       // needs. Also resolved before the gate: a bad comment id is a doomed
-      // write, no point opening the editor for it.
+      // write, no point opening the editor for it. Attachment paths get the
+      // same local pre-gate check.
       let replyToId: string | undefined;
       if (params.replyTo) {
         const resolved = resolveDiscussionCommentNodeId(params.replyTo, repo, cwd);
         if ("error" in resolved) return toToolResult(resolved.error);
         replyToId = resolved.nodeId;
+      }
+      const imagePaths = params.images ?? [];
+      if (imagePaths.length > 0) {
+        const problems = await validateAttachmentPaths(imagePaths);
+        if (problems.length > 0) {
+          return toToolResult(
+            `git-me: refused to post comment (discussion #${params.number}) - attachment problem(s):\n- ${problems.join("\n- ")}`,
+          );
+        }
       }
 
       const decision = await confirmWrite(ctx, {
@@ -101,7 +121,11 @@ export const discussionCommentTool: ToolDefinition<typeof Params, GitDetails> = 
           ? `Post this reply in discussion #${params.number} "${discussion.title}"?${repoContextLabel(cwd, ctx.cwd)}`
           : `Post this comment on discussion #${params.number} "${discussion.title}"?${repoContextLabel(cwd, ctx.cwd)}`,
         editableText: params.body,
-        summary: describeReviewPayload(params.body),
+        summary:
+          describeReviewPayload(params.body) +
+          (imagePaths.length > 0
+            ? `\n\n[attach: ${imagePaths.map((p) => p.split("/").pop()).join(", ")}]`
+            : ""),
         normalize: (s) => s.trimEnd(),
       });
       if (!decision.proceed) {
@@ -112,11 +136,28 @@ export const discussionCommentTool: ToolDefinition<typeof Params, GitDetails> = 
         );
       }
 
-      const body = (decision.text ?? params.body).trimEnd();
+      let body = (decision.text ?? params.body).trimEnd();
       if (!body) {
         return toToolResult(
           "git-me: discussion comment body is empty after edit; nothing was posted.",
         );
+      }
+
+      // Upload AFTER the gate (cancel = zero side effects), BEFORE the
+      // mutation (a failed upload must not leave a comment with dangling
+      // references). The repo is already resolved above.
+      let uploaded: UploadedAttachment[] = [];
+      if (imagePaths.length > 0) {
+        try {
+          uploaded = await uploadAttachmentsForComment({
+            paths: imagePaths,
+            nameWithOwner: repo.nameWithOwner,
+            cwd,
+          });
+        } catch (err) {
+          return toToolResult(errorText(err));
+        }
+        body = appendAttachments(body, uploaded);
       }
 
       // Omit the variable entirely when not replying: an empty-string ID is
@@ -133,8 +174,9 @@ export const discussionCommentTool: ToolDefinition<typeof Params, GitDetails> = 
       }
       const { extraText, details } = postedContentExtras(body, decision.edited ?? false);
       const what = params.replyTo ? "Reply posted" : "Comment posted";
+      const attachPart = uploaded.length > 0 ? ` Attached ${uploaded.length} image(s).` : "";
       return toToolResult(
-        `${what} on discussion #${params.number}.\n  url: ${comment.url}${extraText}`,
+        `${what} on discussion #${params.number}.${attachPart}\n  url: ${comment.url}${extraText}`,
         details,
       );
     } catch (err) {

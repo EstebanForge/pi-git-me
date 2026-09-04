@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.3.0 — 2026-09-05
+
+### Added
+- **Image/video attachments on the three comment tools.** `git_pr_comment`, `git_issue_comment`, and `git_discussion_comment` take a new optional `images` param (local paths: png, jpg, jpeg, gif, webp, svg, mp4, mov, webm). Each file uploads to `https://uploads.github.com/user-attachments/assets` — the user-asset endpoint gh's own `--attach` flag (v2.99+) wraps — authenticated with `gh auth token` against the repository's numeric id, and `![name](url)` markdown is appended to the body, so the media renders inline on the PR, issue, or discussion. Going one level below `--attach` is deliberate: the flag does not exist for discussions (GraphQL-only), and one upload path keeps the three surfaces identical.
+- `lib/attachment-upload.ts` — media-type detection/validation (same allowlist as gh), `gh auth token` + `gh api repos/<owner>/<repo> --jq .id` resolution, the byte POST (raw body, `Accept: application/vnd.github+json`, `Content-Type: application/octet-stream`, URLSearchParams query so `image/svg+xml` keeps its `+`), and error mapping: 404 = token lacks write access to the repo, 422 = type not allowed, plus raw status for the unknown tail.
+- Ordering guarantee: paths are validated before the review dialog; uploads run after acceptance (cancel = zero side effects) and before the comment posts (failed upload = no comment, so no dangling references). 401/403 map to a re-auth hint; upload errors always end with "Comment NOT posted". GitHub keeps user-attachments forever (no auto-discard), so a partial batch failure names every file that uploaded before the failure plus its URL.
+- Filenames containing `[`/`]`/newlines are sanitized in the appended `![alt](url)` alt text; a raw basename there could break the markdown construct in a posted comment.
+
+### Review note
+- Peer-reviewed before commit; both FIX-FIRST findings (orphan reporting, alt-text sanitization) are fixed above. The fork-workflow caveat (repository id resolves from the local checkout's remote) is documented in `lib/attachment-upload.ts`.
+
 ## 1.2.1 — 2026-09-03
 
 ### Fixed

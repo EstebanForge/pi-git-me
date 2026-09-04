@@ -47,12 +47,12 @@ The git-me tools will not interfere with those; they only handle `git` and `gh` 
 | `git_pr_info` | read | `gh` | PR for the current branch (number, title, body, URL, draft flag, review decision) — `null` when none. |
 | `git_commit` | write | `git` | Commit staged changes, or finish an in-progress merge (works with an empty index). Agent's suggested subject + body. Opens an editable preview; applies via `git commit -F -`. |
 | `git_pr_upsert` | write | `gh` | Create or edit the PR title + body for the current branch. Opens an editable preview; creates via `gh pr create` when no PR exists, or edits via `gh pr edit` when one does. |
-| `git_pr_comment` | write | `gh` | Post a top-level PR conversation comment. Opens an editable preview; applies via `gh pr comment` (does not touch the PR review state — use `git_pr_review` for that). |
+| `git_pr_comment` | write | `gh` | Post a top-level PR conversation comment; attach local images/videos with `images`. Opens an editable preview; applies via `gh pr comment` (does not touch the PR review state — use `git_pr_review` for that). |
 | `git_pr_review` | write | `gh` | Post a PR review event. Opens an editable preview; applies via `gh pr review --comment` (or `--approve` / `--request-changes`). |
-| `git_issue_comment` | write | `gh` | Post a comment on a GitHub issue. Opens an editable preview; applies via `gh issue comment <number> --body`. |
+| `git_issue_comment` | write | `gh` | Post a comment on a GitHub issue; attach local images/videos with `images`. Opens an editable preview; applies via `gh issue comment <number> --body`. |
 | `git_issue_create` | write | `gh` | Create a new GitHub issue (title + body, optional labels/assignees). Opens an editable preview; applies via `gh issue create`. |
 | `git_discussion_create` | write | `gh` (GraphQL) | Start a new GitHub Discussion in a named category. Opens an editable preview; applies via the `createDiscussion` mutation (`gh api graphql`). |
-| `git_discussion_comment` | write | `gh` (GraphQL) | Post a comment on a discussion, or a threaded reply under a comment (`replyTo`). Opens an editable preview; applies via the `addDiscussionComment` mutation. |
+| `git_discussion_comment` | write | `gh` (GraphQL) | Post a comment on a discussion, or a threaded reply under a comment (`replyTo`); attach local images/videos with `images`. Opens an editable preview; applies via the `addDiscussionComment` mutation. |
 
 The agent drafts the prose (commit message, PR title/body, PR comment, review body, issue title/body and comment, discussion title/body and comments); the user always sees it, can edit it, and can cancel.
 
@@ -71,6 +71,18 @@ The editable review is on by default and is governed by the `git-confirm-write` 
 | `/git config` | Settings modal (TUI) — toggle the write review gate; status line elsewhere. |
 | `/git confirm on` / `/git confirm off` | One-shot toggle. |
 | `/git headless on` / `/git headless off` | One-shot toggle. |
+
+## Image & video attachments on comments
+
+The three comment tools (`git_pr_comment`, `git_issue_comment`, `git_discussion_comment`) accept an `images` param: local file paths (png, jpg, jpeg, gif, webp, svg, mp4, mov, webm). Each file uploads to GitHub's user-attachments endpoint — the same one `gh`'s own `--attach` flag uses — and `![name](url)` markdown is appended to the comment body, so the media renders inline on the issue, PR, or discussion.
+
+Details worth knowing:
+
+- The direct endpoint is used instead of the `--attach` flag because the flag exists only on `gh issue comment` / `gh pr comment`, while discussion comments are GraphQL-only; one upload path covers all three surfaces.
+- Uploads need **write access** to the repository (read-only tokens get a 404 from the endpoint; the error says so). Uploading on behalf of a repo you can read but not push to is not possible — same limit the web UI's drag-and-drop does not have, because the browser session there is you-when-signed-in.
+- Uploads run AFTER you accept the review dialog (cancel = zero side effects) and BEFORE the comment posts (a failed upload means no comment, so no dangling references). Uploaded-but-unposted assets stay on GitHub's user-attachments storage, unreferenced and invisible unless the URL is used.
+- Paths are checked (exists + supported type) before the review dialog opens.
+- Size limits match the web flow: 10 MB for images/GIFs, 10 MB video on free plans, 100 MB on paid plans.
 
 ## Install
 

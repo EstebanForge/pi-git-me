@@ -4,12 +4,20 @@ import { runGh, requireGitRepo, requireGh, GitMeEnvError } from "../auth";
 import { confirmWrite } from "../confirm";
 import { describeReviewPayload, repoContextLabel } from "../format";
 import { ghPrForCurrentBranch } from "../git";
+import { ghRepoView } from "../github";
+import {
+  validateAttachmentPaths,
+  uploadAttachmentsForComment,
+  appendAttachments,
+  type UploadedAttachment,
+} from "../attachment-upload";
 import { toToolResult, errorText, postedContentExtras, type GitDetails } from "../result";
 import {
   PR_COMMENT_TITLE,
   PR_COMMENT_DESCRIPTION,
   PR_COMMENT_BODY_DESCRIPTION,
   PR_COMMENT_NUMBER_DESCRIPTION,
+  COMMENT_IMAGES_DESCRIPTION,
   CWD_DESCRIPTION,
 } from "../prompts";
 
@@ -33,6 +41,9 @@ const Params = Type.Object({
       description: PR_COMMENT_NUMBER_DESCRIPTION,
       minimum: 1,
     }),
+  ),
+  images: Type.Optional(
+    Type.Array(Type.String({ description: COMMENT_IMAGES_DESCRIPTION })),
   ),
   cwd: Type.Optional(Type.String({ description: CWD_DESCRIPTION })),
 });
@@ -70,10 +81,27 @@ export const prCommentTool: ToolDefinition<typeof Params, GitDetails> = {
       prNumber = current.number;
     }
 
+    // Fail fast on bad attachment paths BEFORE the review dialog: stat +
+    // extension checks are local and cheap, and reviewing a doomed comment
+    // wastes the user's attention.
+    const imagePaths = params.images ?? [];
+    if (imagePaths.length > 0) {
+      const problems = await validateAttachmentPaths(imagePaths);
+      if (problems.length > 0) {
+        return toToolResult(
+          `git-me: refused to post comment (PR #${prNumber}) - attachment problem(s):\n- ${problems.join("\n- ")}`,
+        );
+      }
+    }
+
     const decision = await confirmWrite(ctx, {
       title: `Post this comment on PR #${prNumber}?${repoContextLabel(cwd, ctx.cwd)}`,
       editableText: params.body,
-      summary: describeReviewPayload(params.body),
+      summary:
+        describeReviewPayload(params.body) +
+        (imagePaths.length > 0
+          ? `\n\n[attach: ${imagePaths.map((p) => p.split("/").pop()).join(", ")}]`
+          : ""),
       // The applied body is trimEnd()'d before it reaches gh.
       normalize: (s) => s.trimEnd(),
     });
@@ -85,11 +113,36 @@ export const prCommentTool: ToolDefinition<typeof Params, GitDetails> = {
       );
     }
 
-    const body = (decision.text ?? params.body).trimEnd();
+    let body = (decision.text ?? params.body).trimEnd();
     if (!body) {
       return toToolResult(
         "git-me: PR comment body is empty after edit; nothing was posted.",
       );
+    }
+
+    // Upload attachments AFTER the gate (cancel = zero side effects) and
+    // BEFORE the gh post (a failed upload must not leave a comment whose body
+    // references files that never landed). Repo resolution happens here too:
+    // only the upload path needs it, and a null view must abort before any
+    // upload starts.
+    let uploaded: UploadedAttachment[] = [];
+    if (imagePaths.length > 0) {
+      const repo = ghRepoView(cwd);
+      if (!repo) {
+        return toToolResult(
+          `git-me: cannot attach images - could not resolve a GitHub repository for "${cwd}" (\`gh repo view\` failed). Nothing was posted.`,
+        );
+      }
+      try {
+        uploaded = await uploadAttachmentsForComment({
+          paths: imagePaths,
+          nameWithOwner: repo.nameWithOwner,
+          cwd,
+        });
+      } catch (err) {
+        return toToolResult(errorText(err));
+      }
+      body = appendAttachments(body, uploaded);
     }
 
     try {
@@ -100,8 +153,9 @@ export const prCommentTool: ToolDefinition<typeof Params, GitDetails> = {
           `git-me: \`gh pr comment\` failed (exit ${result.exitCode}). ${detail}`,
         );
       }
+      const attachPart = uploaded.length > 0 ? ` Attached ${uploaded.length} image(s).` : "";
       const { extraText, details } = postedContentExtras(body, decision.edited ?? false);
-      return toToolResult(`Posted comment on PR #${prNumber}.${extraText}`, details);
+      return toToolResult(`Posted comment on PR #${prNumber}.${attachPart}${extraText}`, details);
     } catch (err) {
       return toToolResult(errorText(err));
     }

@@ -130,7 +130,7 @@ export const PR_COMMENT_DESCRIPTION = `**POSTS a top-level comment on a GitHub p
 
 Distinct from \`git_pr_review\`: that posts a REVIEW event (COMMENT / APPROVE / REQUEST_CHANGES) on the PR's review summary and updates the review state; THIS tool posts a plain comment on the PR conversation via \`gh pr comment\` without touching the review state. Reach for this when you only want to leave a note; reach for \`git_pr_review\` when you want to formally approve, request changes, or summarize a code review.
 
-Scope: GitHub only — this tool drives the \`gh\` CLI. Other git providers are not covered by this extension.
+Scope: GitHub only — this tool drives the \`gh\` CLI. Other git providers are not covered by this extension. Attach local images/videos with images (png/jpg/gif/webp/svg/mp4/mov/webm): each file uploads to the repo's user-attachments and the resulting markdown is appended to the body; uploads need write access to the repo.
 
 DRAFTING IS YOUR JOB, NOT THE USER'S. Draft the comment yourself and call this tool; the editable dialog is where the user reviews, edits, and approves. Do NOT ask the user in chat what to say, and do NOT ask for approval before calling. Do NOT run \`gh pr comment\` through the bash/shell tool yourself; this tool is the only sanctioned path this extension provides and bypassing its preview is a policy violation.`;
 
@@ -139,6 +139,11 @@ export const PR_COMMENT_BODY_DESCRIPTION =
 
 export const PR_COMMENT_NUMBER_DESCRIPTION =
   "Optional PR number. Defaults to the PR for the current branch. For a different PR, supply the number explicitly (git_pr_info only inspects the current branch).";
+
+// Shared by pr/issue/discussion comment tools: one param, one upload path
+// (lib/attachment-upload.ts), so the three surfaces stay behaviorally identical.
+export const COMMENT_IMAGES_DESCRIPTION =
+  "Local image/video file paths to attach (png, jpg, jpeg, gif, webp, svg, mp4, mov, webm). Each file uploads to the repository's GitHub user-attachments and `![name](url)` markdown is appended to the comment body. Requires write access to the repository.";
 
 // -------------------------------------------------- git pr review ---------
 
@@ -169,7 +174,7 @@ export const ISSUE_COMMENT_TITLE = "git: Issue Comment (GitHub via gh)";
 
 export const ISSUE_COMMENT_DESCRIPTION = `**POSTS a comment on a GitHub issue.** USE THIS for any issue comment (reply, status update, triage note, bug report, etc.). This tool runs \`gh issue comment <number> --body\`; the agent supplies the issue number and drafts the body, and the extension shows the body in an editable preview dialog, applying it only after the user accepts.
 
-Scope: GitHub only — this tool drives the \`gh\` CLI. Other git providers are not covered by this extension.
+Scope: GitHub only — this tool drives the \`gh\` CLI. Other git providers are not covered by this extension. Attach local images/videos with images (png/jpg/gif/webp/svg/mp4/mov/webm): each file uploads to the repo's user-attachments and the resulting markdown is appended to the body; uploads need write access to the repo.
 
 DRAFTING IS YOUR JOB, NOT THE USER'S. Draft the comment yourself and call this tool; the editable dialog is where the user reviews, edits, and approves. Do NOT ask the user in chat what to say, and do NOT ask for approval before calling. Do NOT run \`gh issue comment\` through the bash/shell tool yourself; this tool is the only sanctioned path this extension provides and bypassing its preview is a policy violation.`;
 
@@ -228,7 +233,7 @@ export const DISCUSSION_COMMENT_DESCRIPTION = `**POSTS a comment on a GitHub Dis
 
 Distinct from \`git_issue_comment\`: issue comments are flat and that tool posts them via \`gh issue comment\`; THIS tool is discussions-only. For a threaded reply under a specific comment, pass replyTo with that comment's id (numeric REST id from \`gh api repos/<owner>/<repo>/discussions/<n>/comments\`, or its GraphQL node id) — you MAY run that read-only listing through the bash/shell tool to discover ids.
 
-Scope: GitHub only — this tool drives the \`gh\` CLI. Other git providers are not covered by this extension.
+Scope: GitHub only — this tool drives the \`gh\` CLI. Other git providers are not covered by this extension. Attach local images/videos with images (png/jpg/gif/webp/svg/mp4/mov/webm): each file uploads to the repo's user-attachments and the resulting markdown is appended to the body; uploads need write access to the repo.
 
 DRAFTING IS YOUR JOB, NOT THE USER'S. Draft the comment yourself and call this tool; the editable dialog is where the user reviews, edits, and approves. Do NOT ask the user in chat what to say, and do NOT ask for approval before calling. Do NOT run \`gh api graphql\` mutations through the bash/shell tool yourself; this tool is the only sanctioned path this extension provides and bypassing its preview is a policy violation.`;
 
