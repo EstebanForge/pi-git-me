@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.3.1 — 2026-09-10
+
+### Fixed
+- **Parallel gated tool calls no longer hang.** pi's TUI shows ONE extension dialog at a time; an overlapping `ctx.ui.confirm`/`ctx.ui.editor` call replaces the live dialog and the replaced promise never settles, so a batch like three `git_commit` calls showed one gate and left the other tool calls waiting forever (cancel + resume was the only exit). `confirmWrite` now holds a process-wide FIFO lock (`withDialogLock`) only while a dialog is open: the first prompt renders, the rest appear in turn as each is answered, and a throwing dialog cannot wedge the queue (released in `finally`).
+- The lock is shared across ALL pi-* extensions in the process via `Symbol.for("pi-me.dialog-lock")`, so mixed batches (`git_commit` + `slack_post_message`) serialize against one queue instead of clobbering each other across extensions.
+- `tests/confirm.test.ts` pins the contract: FIFO order for concurrent confirms, mixed editor/confirm traffic, the shared `Symbol.for` key, and queue survival when a dialog throws.
+
 ## 1.3.0 — 2026-09-05
 
 ### Added

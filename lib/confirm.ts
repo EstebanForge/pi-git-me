@@ -181,6 +181,51 @@ export interface ConfirmOutcome {
   edited?: boolean;
 }
 
+// DIALOG SERIALIZATION: pi's interactive UI shows one extension dialog at a
+// time, and an overlapping ctx.ui.confirm/editor call REPLACES the live
+// dialog without settling the replaced promise. With parallel gated tool
+// calls (e.g. three git_commit calls in one batch) the first prompt renders,
+// the rest never do, and their tool calls hang until the run is cancelled.
+// Fix on our side: hold a process-wide FIFO lock only while a dialog is open.
+// The lock is keyed via Symbol.for because all pi-*-me extensions run in the
+// SAME pi process; a per-module lock would still let a git_commit dialog and
+// a slack_post_message dialog from one parallel batch clobber each other.
+const DIALOG_LOCK: unique symbol = Symbol.for("pi-me.dialog-lock");
+
+interface DialogQueue {
+  tail: Promise<void>;
+}
+
+function dialogQueue(): DialogQueue {
+  const host = globalThis as typeof globalThis & Record<symbol, unknown>;
+  const existing = host[DIALOG_LOCK] as DialogQueue | undefined;
+  if (existing) return existing;
+  const created: DialogQueue = { tail: Promise.resolve() };
+  host[DIALOG_LOCK] = created;
+  return created;
+}
+
+/**
+ * Run `run` while holding the cross-extension dialog lock. FIFO: each caller
+ * chains onto the queue tail synchronously (before its first await), so call
+ * order is the order the dialogs appear. Released in a finally block, so one
+ * throwing dialog can never wedge the queue for the callers behind it.
+ */
+export async function withDialogLock<T>(run: () => Promise<T>): Promise<T> {
+  const queue = dialogQueue();
+  const prev = queue.tail;
+  let release!: () => void;
+  queue.tail = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await prev;
+  try {
+    return await run();
+  } finally {
+    release();
+  }
+}
+
 /**
  * Resolve whether a write should proceed, prompting the user when the gate is
  * active and an interactive UI is present. Pure orchestration: no git/gh I/O.
@@ -220,20 +265,29 @@ export async function confirmWrite(
     return { proceed: true, text: opts.editableText, edited: false };
   }
 
+  // One dialog at a time (see withDialogLock): parallel gated calls queue up
+  // and each prompt is shown in turn instead of clobbering the live dialog.
   if (opts.editableText !== undefined) {
-    const edited = await ctx.ui.editor(opts.title, opts.editableText);
-    if (edited === undefined) return { proceed: false };
-    const norm = opts.normalize ?? ((s: string) => s);
-    return {
-      proceed: true,
-      text: edited,
-      // Compare AFTER the same normalization the tool applies before sending,
-      // so a whitespace-only edit that gets trimmed away does not register as
-      // "edited" (which would falsely tell the agent its draft was changed).
-      edited: norm(edited) !== norm(opts.editableText),
-    };
+    // Capture the draft so the narrowing survives inside the closure (TS
+    // will not carry the `!== undefined` check across the function boundary).
+    const draft = opts.editableText;
+    return withDialogLock(async () => {
+      const edited = await ctx.ui.editor(opts.title, draft);
+      if (edited === undefined) return { proceed: false };
+      const norm = opts.normalize ?? ((s: string) => s);
+      return {
+        proceed: true,
+        text: edited,
+        // Compare AFTER the same normalization the tool applies before sending,
+        // so a whitespace-only edit that gets trimmed away does not register as
+        // "edited" (which would falsely tell the agent its draft was changed).
+        edited: norm(edited) !== norm(draft),
+      };
+    });
   }
 
-  const ok = await ctx.ui.confirm(opts.title, opts.summary);
+  const ok = await withDialogLock(() =>
+    ctx.ui.confirm(opts.title, opts.summary),
+  );
   return { proceed: ok };
 }
